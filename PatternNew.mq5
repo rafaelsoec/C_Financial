@@ -49,6 +49,13 @@ enum OPERATOR{
    MINOR
 };
 
+enum ENUM_STATS_PERIOD
+{
+   STATS_BY_DAY = 0,
+   STATS_BY_WEEK = 1,
+   STATS_BY_MONTH = 2
+};
+
 enum ORIENTATION{
    UP,
    DOWN,
@@ -202,7 +209,7 @@ double profitSellOrder = 0, profitBuyOrder = 0;
 ulong robots[];
 int patterns[];
 datetime startedDatetimeRobot;
-bool sellOrdersLocked = true,  buyOrdersLocked = true, isNewDayActive= true;
+bool sellOrdersLocked = true,  buyOrdersLocked = true, isNewDayActive= true, waitMonthEnd= false;
 PositionProfitInfo positions[];
 double activeMaxRobots = 0, activeVolume = 0;
 int atr_handle;
@@ -320,20 +327,45 @@ void OnTick() {
        if (MARTINGALE_POINTS > 0) {
          removeObsoletesOrders();
        }
+    }
+    
+    
+    if (hasNewCandle(PERIOD_M1)) {
        waitCandlesP1--;
        waitCandlesP2--;
        waitCandlesP3--;
        waitCandlesP4--;
     }
     
-    if (IsNewDay()){
-         BALANCE = AccountInfoDouble(ACCOUNT_BALANCE);
-         MIN_BODY_POINTS = getAverageLastCandles(200);
-         printf("Quantidade de engolfos realizadas: " + patterns[0]);
-         printf("Quantidade de Inversoes realizadas: " + patterns[1]);
-         for(int i = 0; i < numberMaxRobotsActive; i++)  {
-            patterns[i] = 0;
-         }
+    
+    if (hasNewCandle(PERIOD_MN1)) {
+       waitMonthEnd = false;
+    }
+    
+    if (IsNewDay()){ 
+      MIN_BODY_POINTS = getAverageLastCandles(200);
+      
+      if (MIN_BODY_POINTS < 300) {
+         PERIOD = PERIOD_H1;
+         waitMonthEnd = true;
+      } else if (!waitMonthEnd && MIN_BODY_POINTS < 300) {
+         PERIOD = PERIOD_M15;
+      }
+      
+      double taxaSem = GetWinRate(STATS_BY_DAY);
+      if ( (taxaSem > 0 && taxaSem < 50)) {
+         Print("Win rate do mês: ", DoubleToString(taxaSem, 2), "%");
+         ENABLE_INVERSION_POSITION = true;
+      } else {
+         ENABLE_INVERSION_POSITION = false;
+      } /**/
+      
+      BALANCE = AccountInfoDouble(ACCOUNT_BALANCE);
+      printf("Quantidade de engolfos realizadas: " + patterns[0]);
+      printf("Quantidade de Inversoes realizadas: " + patterns[1]);
+      for(int i = 0; i < numberMaxRobotsActive; i++)  {
+         patterns[i] = 0;
+      }
     }
    
     //double profit = AccountInfoDouble(ACCOUNT_PROFIT);
@@ -413,7 +445,7 @@ void executePatterns(MainCandles& mainCandles){
    double thirdLastBodyPoints = mainCandles.thirdLastBody;
    double actualBodyPoints = mainCandles.actualBody;
    
-   if ( secLastBodyPoints >= MIN_BODY_POINTS && thirdLastBodyPoints >= MIN_BODY_POINTS  ) {
+   if (secLastBodyPoints >= MIN_BODY_POINTS && thirdLastBodyPoints >= MIN_BODY_POINTS  ) {
       ulong magicNumber = MAGIC_NUMBER;
       TYPE_NEGOCIATION type = mainCandles.actualOrientation == UP ? BUY : SELL;
       color indColor = type == BUY ? clrGreenYellow : clrWhite;
@@ -554,6 +586,7 @@ void showComments(){
          " Total de robôs Disponiveis: ", (numberMaxRobotsActive - countRobots),
          " Total de robôs ativos: ", (countRobots), 
          " Saldo: ", DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE) + profit, 2),
+         " Periodo: ", EnumToString(PERIOD),
          " Lucro Atual: ", DoubleToString(profit, 2),
          " Volume: ", DoubleToString(activeVolume, 2));
 }
@@ -742,6 +775,7 @@ PositionInfo realizeDeals(TYPE_NEGOCIATION typeDeals, double volume, double stop
          ResultOperation result = calculateLossAndProfitExpected(); 
          if (result.losses < BALANCE * PERCENT_LOSS_PER_DAY / 100) {
             if(countRobots < numberMaxRobotsActive && hasPositionOpenWithMagicNumber(countRobots, magicNumber) == false) {
+               typeDeals = invertOrder(typeDeals);
                if(typeDeals == BUY){ 
                   position = toBuy(volume, borders.min, borders.max);
                }
@@ -1604,4 +1638,130 @@ void generateButtons(){
       createButton("btnMvTake", 20, 250, 220, 30, CORNER_LEFT_LOWER, 12, "Arial", "Aumentar Take", clrWhite, clrBlue, clrBlue, false);
       createButton("btnMvStop", 250, 250, 220, 30, CORNER_LEFT_LOWER, 12, "Arial", "Aumentar Stop", clrWhite, clrBlue, clrBlue, false);
      
+}
+
+// Retorna a % de acerto do período atual ou de um deslocamento.
+// shift = 0 -> período atual
+// shift = 1 -> período anterior, etc.
+double GetWinRate(ENUM_STATS_PERIOD periodType, int shift = 0, long magic = -1, string symbolFilter = "")
+{
+   datetime now = TimeCurrent();
+   datetime from = 0;
+   datetime to   = now;
+
+   MqlDateTime dt;
+   TimeToStruct(now, dt);
+
+   if(periodType == STATS_BY_DAY)
+   {
+      dt.hour = 0;
+      dt.min  = 0;
+      dt.sec  = 0;
+      datetime dayStart = StructToTime(dt);
+      from = dayStart - (shift * 86400);
+      to   = from + 86399;
+   }
+   else if(periodType == STATS_BY_WEEK)
+   {
+      dt.hour = 0;
+      dt.min  = 0;
+      dt.sec  = 0;
+
+      datetime today0 = StructToTime(dt);
+      int dayOfWeek = dt.day_of_week; // 0=domingo ... 6=sábado
+      int daysFromMonday = (dayOfWeek == 0 ? 6 : dayOfWeek - 1);
+
+      datetime weekStart = today0 - (daysFromMonday * 86400);
+      from = weekStart - (shift * 7 * 86400);
+      to   = from + (7 * 86400) - 1;
+   }
+   else if(periodType == STATS_BY_MONTH)
+   {
+      dt.day  = 1;
+      dt.hour = 0;
+      dt.min  = 0;
+      dt.sec  = 0;
+
+      // volta "shift" meses
+      int y = dt.year;
+      int m = dt.mon - shift;
+
+      while(m <= 0)
+      {
+         m += 12;
+         y--;
+      }
+
+      dt.year = y;
+      dt.mon  = m;
+
+      from = StructToTime(dt);
+
+      // início do próximo mês
+      int nextY = y;
+      int nextM = m + 1;
+      if(nextM > 12)
+      {
+         nextM = 1;
+         nextY++;
+      }
+
+      MqlDateTime nextMonth;
+      nextMonth.year = nextY;
+      nextMonth.mon  = nextM;
+      nextMonth.day  = 1;
+      nextMonth.hour = 0;
+      nextMonth.min  = 0;
+      nextMonth.sec  = 0;
+
+      to = StructToTime(nextMonth) - 1;
+   }
+
+   if(!HistorySelect(from, to))
+   {
+      Print("HistorySelect falhou. Erro: ", GetLastError());
+      return 0.0;
+   }
+
+   int wins = 0;
+   int losses = 0;
+   int totalDeals = HistoryDealsTotal();
+
+   for(int i = 0; i < totalDeals; i++)
+   {
+      ulong ticket = HistoryDealGetTicket(i);
+      if(ticket == 0)
+         continue;
+
+      ENUM_DEAL_ENTRY entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(ticket, DEAL_ENTRY);
+      if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_INOUT)
+         continue;
+
+      if(symbolFilter != "" && HistoryDealGetString(ticket, DEAL_SYMBOL) != symbolFilter)
+         continue;
+
+      if(magic != -1 && HistoryDealGetInteger(ticket, DEAL_MAGIC) != magic)
+         continue;
+
+      ENUM_DEAL_TYPE type = (ENUM_DEAL_TYPE)HistoryDealGetInteger(ticket, DEAL_TYPE);
+      if(type != DEAL_TYPE_BUY && type != DEAL_TYPE_SELL)
+         continue;
+
+      double profit     = HistoryDealGetDouble(ticket, DEAL_PROFIT);
+      double commission = HistoryDealGetDouble(ticket, DEAL_COMMISSION);
+      double swap       = HistoryDealGetDouble(ticket, DEAL_SWAP);
+
+      double netResult = profit;
+
+      if(netResult > 0)
+         wins++;
+      else if(netResult < 0)
+         losses++;
+   }
+
+   int total = wins + losses;
+   if(total == 0)
+      return 0.0;
+
+   return (100.0 * wins) / total;
 }

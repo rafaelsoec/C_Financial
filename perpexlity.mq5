@@ -434,9 +434,14 @@ void ManagePosition()
    double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
    double sl        = PositionGetDouble(POSITION_SL);
    double tp        = PositionGetDouble(POSITION_TP);
+   ulong magicNumberPos = PositionGetInteger(POSITION_MAGIC);
 
    double bid       = NormalizePrice(SymbolInfoDouble(_Symbol, SYMBOL_BID));
    double ask       = NormalizePrice(SymbolInfoDouble(_Symbol, SYMBOL_ASK));
+   
+   if (magicNumberPos != MagicNumber){
+      return;
+   }
 
    bool exitBuy  = (slow2 >= 0 && slow1 < 0) || (fast2 >= 100 && fast1 < 100);
    bool exitSell = (slow2 <= 0 && slow1 > 0) || (fast2 <= -100 && fast1 > -100);
@@ -463,63 +468,130 @@ void ManagePosition()
    {
       double beTrigger = atr * BreakEvenATR;
       double beOffset  = atr * BreakEvenOffsetATR;
-
+   
       if(type == POSITION_TYPE_BUY)
       {
          if((bid - openPrice) >= beTrigger)
          {
-            double newSL = NormalizePrice(openPrice + beOffset);
-            if(newSL > sl)
+            double candidateSL = openPrice + beOffset;
+            double newSL = AdjustStopForBuy(candidateSL, bid);
+   
+            if((sl == 0.0 || newSL > sl) && newSL < bid && IsDifferentPrice(newSL, sl))
             {
-               if(!trade.PositionModify(_Symbol, newSL, tp))
-                  Print("Erro break-even BUY: ", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
+               ModifyPositionSL(newSL, tp);
             }
          }
       }
-
+   
       if(type == POSITION_TYPE_SELL)
       {
          if((openPrice - ask) >= beTrigger)
          {
-            double newSL = NormalizePrice(openPrice - beOffset);
-            if(sl == 0.0 || newSL < sl)
+            double candidateSL = openPrice - beOffset;
+            double newSL = AdjustStopForSell(candidateSL, ask);
+   
+            if((sl == 0.0 || newSL < sl) && newSL > ask && IsDifferentPrice(newSL, sl))
             {
-               if(!trade.PositionModify(_Symbol, newSL, tp))
-                  Print("Erro break-even SELL: ", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
+               ModifyPositionSL(newSL, tp);
             }
          }
       }
    }
-
+   
    if(UseTrailing)
    {
       double trailingStart = atr * TrailingStartATR;
       double trailingDist  = atr * TrailingATR;
-
+   
       if(type == POSITION_TYPE_BUY)
       {
          if((bid - openPrice) >= trailingStart)
          {
-            double newSL = NormalizePrice(bid - trailingDist);
-            if(newSL > sl && newSL > openPrice)
+            double candidateSL = bid - trailingDist;
+            double newSL = AdjustStopForBuy(candidateSL, bid);
+   
+            if((sl == 0.0 || newSL > sl) && newSL > openPrice && newSL < bid && IsDifferentPrice(newSL, sl))
             {
-               if(!trade.PositionModify(_Symbol, newSL, tp))
-                  Print("Erro trailing BUY: ", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
+               ModifyPositionSL(newSL, tp);
             }
          }
       }
-
+   
       if(type == POSITION_TYPE_SELL)
       {
          if((openPrice - ask) >= trailingStart)
          {
-            double newSL = NormalizePrice(ask + trailingDist);
-            if((sl == 0.0 || newSL < sl) && newSL < openPrice)
+            double candidateSL = ask + trailingDist;
+            double newSL = AdjustStopForSell(candidateSL, ask);
+   
+            if((sl == 0.0 || newSL < sl) && newSL < openPrice && newSL > ask && IsDifferentPrice(newSL, sl))
             {
-               if(!trade.PositionModify(_Symbol, newSL, tp))
-                  Print("Erro trailing SELL: ", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
+               ModifyPositionSL(newSL, tp);
             }
          }
       }
    }
+}
+
+double GetProtectionDistance()
+{
+   int stopsLevel  = (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   int freezeLevel = (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_FREEZE_LEVEL);
+
+   int level = MathMax(stopsLevel, freezeLevel);
+   if(level < 1)
+      level = 1;
+
+   return level * _Point;
+}
+
+bool IsDifferentPrice(double a, double b)
+{
+   return MathAbs(NormalizeDouble(a, _Digits) - NormalizeDouble(b, _Digits)) >= (_Point * 0.5);
+}
+
+double AdjustStopForBuy(double candidateSL, double bid)
+{
+   double protectDist = GetProtectionDistance();
+   double maxAllowedSL = NormalizeDouble(bid - protectDist, _Digits);
+
+   if(candidateSL > maxAllowedSL)
+      candidateSL = maxAllowedSL;
+
+   return NormalizeDouble(candidateSL, _Digits);
+}
+
+double AdjustStopForSell(double candidateSL, double ask)
+{
+   double protectDist = GetProtectionDistance();
+   double minAllowedSL = NormalizeDouble(ask + protectDist, _Digits);
+
+   if(candidateSL < minAllowedSL)
+      candidateSL = minAllowedSL;
+
+   return NormalizeDouble(candidateSL, _Digits);
+}
+
+bool ModifyPositionSL(double newSL, double currentTP)
+{
+   newSL = NormalizeDouble(newSL, _Digits);
+   currentTP = NormalizeDouble(currentTP, _Digits);
+
+   bool ok = trade.PositionModify(_Symbol, newSL, currentTP);
+
+   if(!ok)
+   {
+      Print("Erro PositionModify | SL=", newSL,
+            " | TP=", currentTP,
+            " | retcode=", trade.ResultRetcode(),
+            " | desc=", trade.ResultRetcodeDescription(),
+            " | stopsLevel=", SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL),
+            " | freezeLevel=", SymbolInfoInteger(_Symbol, SYMBOL_TRADE_FREEZE_LEVEL));
+   }
+   else
+   {
+      Print("PositionModify OK | novoSL=", newSL, " | TP=", currentTP);
+   }
+
+   return ok;
 }

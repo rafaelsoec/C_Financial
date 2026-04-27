@@ -286,7 +286,7 @@ void OnChartEvent(const int id,
 //                                                                          | Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit() {
-   generateButtons();
+   //generateButtons();//
 
    //atr_handle = iATR(_Symbol, PERIOD, 14);
    handleICCI = iCCI(_Symbol, PERIOD, 14, PRICE_TYPICAL);
@@ -459,8 +459,8 @@ void executePatterns(MainCandles& mainCandles){
       
       // Acertando 70% atualmente sem martingale
       if (ENABLE_ENGOLFO && mainCandles.secondLastOrientation != mainCandles.thirdLastOrientation && mainCandles.secondLastOrientation != mainCandles.lastOrientation) {
-         printf("Probabilidade de engolfo");
          if ((possuiCorpoProporcional(secLastCandle, thirdLastCandle, 20) && possuiCorpoProporcional(secLastCandle, lastCandle, 20)) && waitCandlesP1 <= 0) {
+            printf("Probabilidade de engolfo");
             if (mainCandles.actualOrientation == UP && mainCandles.lastOrientation == UP && closeSpread > lastCandle.close){
                if(cci > 30 && cci < 100 ) {
                   double sl = calcPoints(lastCandle.low, actualCandle.close);
@@ -763,6 +763,7 @@ PositionInfo realizeDeals(TYPE_NEGOCIATION typeDeals, double volume, double stop
          ResultOperation result = calculateLossAndProfitExpected(); 
          if (result.losses < BALANCE * PERCENT_LOSS_PER_DAY / 100) {
             if(countRobots < numberMaxRobotsActive && hasPositionOpenWithMagicNumber(countRobots, magicNumber) == false) {
+               printf("Ordem realizada pelo robo de engolfo");
                typeDeals = invertOrder(typeDeals);
                if(typeDeals == BUY){ 
                   position = toBuy(volume, borders.min, borders.max);
@@ -1170,19 +1171,6 @@ MainCandles generateMainCandles(){
    return mainCandles;
 }
 
-bool isNewDay(datetime date){
-   MqlDateTime structDate, structActual;
-   datetime actualTime = TimeCurrent();
-   
-   TimeToStruct(actualTime, structActual);
-   TimeToStruct(date, structDate);
-   
-   if((structActual.day_of_year - structDate.day_of_year) > 0){
-      return true;
-   }else{
-      return false;
-   }
-}
 
 double calcPoints(double val1, double val2, bool absValue = true){
    if(absValue){
@@ -1308,37 +1296,41 @@ void moveAutomaticStopPerPoint(){
       if(hasPositionOpen(position)){
          ulong ticket = PositionGetTicket(position);
          PositionSelectByTicket(ticket);
-         double currentPrice = PositionGetDouble(POSITION_PRICE_CURRENT);
-         double entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-         double profit = PositionGetDouble(POSITION_PROFIT);
-         double slPrice = PositionGetDouble(POSITION_SL);
-         double tpPrice = PositionGetDouble(POSITION_TP);
-         double points = calcPoints(tpPrice, entryPrice) / 4;
-         //points = getAverageLastCandles(200);
-         if (profit > 0) {
-            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) {
-               double calculatedPrice = calcPrice(currentPrice, -points);
-               if (calculatedPrice >= entryPrice && calculatedPrice >= slPrice) {
-                  double newSl = slPrice + (points * _Point);
-               
-                  tradeLib.PositionModify(ticket, newSl, tpPrice);
-                  if(verifyResultTrade()){
-                     Print("Stop movido");
+         ulong magicNumber = PositionGetInteger(POSITION_MAGIC);
+         if(magicNumber == MAGIC_NUMBER){
+            double currentPrice = PositionGetDouble(POSITION_PRICE_CURRENT);
+            double entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+            double profit = PositionGetDouble(POSITION_PROFIT);
+            double slPrice = PositionGetDouble(POSITION_SL);
+            double tpPrice = PositionGetDouble(POSITION_TP);
+            double points = calcPoints(tpPrice, entryPrice) / 4;
+            //points = getAverageLastCandles(200);
+            if (profit > 0) {
+               if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) {
+                  double calculatedPrice = calcPrice(currentPrice, -points);
+                  if (calculatedPrice >= entryPrice && calculatedPrice >= slPrice) {
+                     double newSl = slPrice + (points * _Point);
+                  
+                     tradeLib.PositionModify(ticket, newSl, tpPrice);
+                     if(verifyResultTrade()){
+                        Print("Stop movido");
+                     }
                   }
                }
-            }
-            else if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL) {
-               double calculatedPrice = calcPrice(currentPrice, points);
-               if (calculatedPrice <= entryPrice && calculatedPrice <= slPrice) {
-                  double newSl = slPrice - (points * _Point);
-               
-                  tradeLib.PositionModify(ticket, newSl,tpPrice);
-                  if(verifyResultTrade()){
-                     Print("Stop movido");
+               else if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL) {
+                  double calculatedPrice = calcPrice(currentPrice, points);
+                  if (calculatedPrice <= entryPrice && calculatedPrice <= slPrice) {
+                     double newSl = slPrice - (points * _Point);
+                  
+                     tradeLib.PositionModify(ticket, newSl,tpPrice);
+                     if(verifyResultTrade()){
+                        Print("Stop movido");
+                     }
                   }
                }
             }
          }
+      
       }
    }
 }  

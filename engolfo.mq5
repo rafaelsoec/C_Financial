@@ -153,9 +153,9 @@ struct PeriodProtectionTime {
 };
 
  bool ENABLE_MARTINGALE = true;
-input bool ENABLE_MOVESTOP = true;
-input bool ENABLE_ENGOLFO = true;
-input bool ENABLE_INVERSAO_TOPO = true;
+ bool ENABLE_MOVESTOP = true;
+ bool ENABLE_ENGOLFO = true;
+ bool ENABLE_INVERSAO_TOPO = false;
  bool IGNORE_WAIT_CANDLE_TIME = true;
  bool ENABLE_INVERSION_POSITION = false;
 ENUM_TIMEFRAMES PERIOD_MULTIPLE_POSITIONS_BY_CANDLE = PERIOD_M15;
@@ -164,7 +164,7 @@ input double ACTIVE_VOLUME = 0.01;
 input double PERCENT_LOSS_PER_DAY = 2;
  double MIN_BODY_POINTS = 300;   
  double PERCENTUAL_MOVE_STOP = 70;
- int NUMBER_MAX_ROBOTS = 40;
+ int NUMBER_MAX_ROBOTS = 15;
 ulong MAGIC_NUMBER = 200296;
 ulong IGNORED_MAGIC_NUMBER = 88888;
  int MARTINGALE_POINTS = 300;
@@ -326,12 +326,17 @@ void OnTick() {
         return;  // Não opera mais hoje
    }
    
-   if (hasNewCandle(PERIOD_MULTIPLE_POSITIONS_BY_CANDLE)) {
        executeCCI(mainCandles);
+   if (hasNewCandle(PERIOD_MULTIPLE_POSITIONS_BY_CANDLE)) {
        DeleteHorizontalLinesByPrefix();
        if (ENABLE_MARTINGALE) {
          removeObsoletesOrders();
        }
+       waitCandles = 0;
+       waitCandlesP1 = 0;
+       waitCandlesP2 = 0;
+       waitCandlesP3 = 0;
+       waitCandlesP4 = 0;
       /*
        double balance = AccountInfoDouble(ACCOUNT_BALANCE);
        double diff = (balance - BALANCE_DAILY);
@@ -339,15 +344,8 @@ void OnTick() {
           ENABLE_INVERSION_POSITION = !ENABLE_INVERSION_POSITION;
           BALANCE_DAILY = balance;
        }*/
-       waitCandles = 0;
-       waitCandlesP1 = 0;
-       waitCandlesP2 = 0;
-       waitCandlesP3 = 0;
-       waitCandlesP4 = 0;
     }
     
-    if (hasNewCandle(PERIOD_M1)) {
-    }
     
     if (hasNewCandle(PERIOD_MN1)) {
          waitMonthEnd = false;
@@ -461,6 +459,7 @@ void executePatterns(MainCandles& mainCandles){
       
       // Acertando 70% atualmente sem martingale
       if (ENABLE_ENGOLFO && mainCandles.secondLastOrientation != mainCandles.thirdLastOrientation && mainCandles.secondLastOrientation != mainCandles.lastOrientation) {
+         printf("Probabilidade de engolfo");
          if ((possuiCorpoProporcional(secLastCandle, thirdLastCandle, 20) && possuiCorpoProporcional(secLastCandle, lastCandle, 20)) && waitCandlesP1 <= 0) {
             if (mainCandles.actualOrientation == UP && mainCandles.lastOrientation == UP && closeSpread > lastCandle.close){
                if(cci > 30 && cci < 100 ) {
@@ -486,45 +485,6 @@ void executePatterns(MainCandles& mainCandles){
          }
       }
     
-      // Separado faz 66%
-     if (ENABLE_INVERSAO_TOPO && mainCandles.secondLastOrientation == mainCandles.thirdLastOrientation && mainCandles.secondLastOrientation != mainCandles.lastOrientation && waitCandlesP3 <= 0) {
-        /* if (secLastBodyPoints > thirdLastBodyPoints && (lastBodyPoints > secLastBodyPoints * 0.6)&&  waitCandlesP3 <= 0) {
-            double sl = calcPoints(lastCandle.open, lastCandle.close);
-            double tp = calcPoints(thirdLastCandle.open, lastCandle.close);
-            if (sl < tp ) {
-               if (mainCandles.lastOrientation == DOWN && closeSpread < lastCandle.close){
-                  PositionInfo position = realizeDeals(SELL, activeVolume, sl, tp , magicNumber);
-                  drawHorizontalLine(actualCandle.close, 0, HORIZONTAL_LINE + "_Pattern3_" + TimeToString(TimeCurrent()), indColor);
-                  patterns[1] += 1;
-                  waitCandlesP3 = 1;
-               }else if (mainCandles.lastOrientation == UP && closeSpread > lastCandle.close){
-                  PositionInfo position = realizeDeals(BUY, activeVolume, sl, tp, magicNumber);
-                  drawHorizontalLine(actualCandle.close, 0, HORIZONTAL_LINE + "_Pattern3_" + TimeToString(TimeCurrent()), indColor);
-                  patterns[1] += 1;
-                  waitCandlesP3 = 1;
-               }
-            }
-         }*/
-          if (mainCandles.lastOrientation == DOWN && thirdLastCandle.close < secLastCandle.close && cci > 0 ){
-            double sl = calcPoints(calcPrice(mainCandles.getLastMaximum, mainCandles.spread), lastCandle.close);
-            double tp = calcPoints(calcPrice(thirdLastCandle.open, mainCandles.spread), lastCandle.close);
-            //if(sl < tp) {
-               PositionInfo position = realizeDeals(SELL, activeVolume, sl, tp , magicNumber);
-               drawHorizontalLine(actualCandle.close, 0, HORIZONTAL_LINE + "_Pattern3_" + TimeToString(TimeCurrent()), indColor);
-               patterns[1] += 1;
-               waitCandlesP3 = 1;
-            //}
-         } else if (mainCandles.lastOrientation == UP && thirdLastCandle.close > secLastCandle.close && cci < 0) {
-            double sl = calcPoints(calcPrice(mainCandles.getLastMinimum, -mainCandles.spread), lastCandle.close);
-            double tp = calcPoints(calcPrice(thirdLastCandle.open, mainCandles.spread), lastCandle.close);
-            //if(sl < tp) {
-               PositionInfo position = realizeDeals(BUY, activeVolume, sl, tp , magicNumber);
-               drawHorizontalLine(actualCandle.close, 0, HORIZONTAL_LINE + "_Pattern3_" + TimeToString(TimeCurrent()), indColor);
-               patterns[1] += 1;
-               waitCandlesP3 = 1;
-            //}
-        } 
-     }
   }
 }
 

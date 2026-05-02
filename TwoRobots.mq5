@@ -5,6 +5,19 @@
 
 #include <Trade/Trade.mqh>
 
+
+CTrade trade;
+
+struct MaximosMinimos
+{
+   double high;
+   double low;
+   double minOpen;
+   double maxOpen;
+   double minClose;
+   double maxClose;
+};
+
 struct BordersOperation {
    double max;
    double min;
@@ -24,50 +37,44 @@ enum TYPE_NEGOCIATION{
    NONE
 };
 
-
-input double Volume = 0.10;
-
-input bool ENABLE_MOVE_STOP = true;
-input double PROPORTION_TAKE_STOP = 1.0;
- LEVEL VERIFICATION_LEVEL = L3;
-int QTD_CANDLES = 5;
-ulong MAGIC_NUMBER = 8328138;
-
-CTrade trade;
-
 struct TimeframeConfig
 {
    ENUM_TIMEFRAMES tf;
    int tfSeconds;
    int cciHandle;
+   double multiplier;
    datetime lastBarTime;
    bool waitNewCandle;
    bool waitNewCandleTendency;
    bool waitNewCandleInversion;
    ulong magicNumber;
-   string signalReversao;
-   string signalTendencia;
+   TYPE_NEGOCIATION signalReversao;
+   TYPE_NEGOCIATION signalTendencia;
    string label;
    MqlRates candleCandidate;
    int candleCandidateCounter;
    TYPE_NEGOCIATION candleCandidateTendency;
 };
 
-struct MaximosMinimos
-{
-   double high;
-   double low;
-   double minOpen;
-   double maxOpen;
-   double minClose;
-   double maxClose;
-};
+input double VOLUME = 0.10;
+input double PERCENT_LOSS_PER_DAY = 2;
+input double PERCENTUAL_MOVE_STOP = 30;
+input double PROPORTION_TAKE_STOP = 2.0;
+input bool ENABLE_TIMEFRAME_MULTIPLIER = true;
+input bool ENABLE_REVERSION = false;
+input bool ENABLE_TENDENCY = true;
+input bool IS_TEST = false;
+int NUMBER_MAX_ROBOT = 40;
+double BALANCE = 0;
+int QTD_CANDLES = 5;
+ulong MAGIC_NUMBER = 8328138;
+int MIN_COUNT_CANDIDATE_CANDLE = 5;
+
 
 TimeframeConfig configs[];
 string labelName = "CandleTimer";
 MqlRates candles[];
 int countOrders = 0;
-int MIN_COUNT_CANDIDATE_CANDLE = 5;
 
 //+------------------------------------------------------------------+
 ulong GetMagicNumberByTimeframe(ENUM_TIMEFRAMES tf)
@@ -79,6 +86,7 @@ ulong GetMagicNumberByTimeframe(ENUM_TIMEFRAMES tf)
       case PERIOD_M30: return MAGIC_NUMBER + 30;
       case PERIOD_H1:  return MAGIC_NUMBER + 60;
       case PERIOD_H2:  return MAGIC_NUMBER + 120;
+      case PERIOD_H3:  return MAGIC_NUMBER + 180;
       case PERIOD_H4:  return MAGIC_NUMBER + 240;
       case PERIOD_D1:  return MAGIC_NUMBER + 1440;
       default:         return MAGIC_NUMBER;
@@ -97,15 +105,32 @@ void showComments(){
          );
 }
 
+double TimeframeToMultiplier(ENUM_TIMEFRAMES tf)
+{
+   switch(tf)
+   {
+      case PERIOD_M5: return 1;
+      case PERIOD_M15: return 1.5;
+      case PERIOD_M30: return 2;
+      case PERIOD_H1:  return 2.5;
+      case PERIOD_H2:  return 3;
+      case PERIOD_H3:  return 3.5;
+      case PERIOD_H4:  return 4;
+      case PERIOD_D1:  return 4.5;
+      default:         return 0;
+   }
+}
+
 int TimeframeToSeconds(ENUM_TIMEFRAMES tf)
 {
    switch(tf)
    {
-      case PERIOD_M15: return 15 * 60;
       case PERIOD_M5: return 5 * 60;
+      case PERIOD_M15: return 15 * 60;
       case PERIOD_M30: return 30 * 60;
       case PERIOD_H1:  return 60 * 60;
       case PERIOD_H2:  return 2 * 60 * 60;
+      case PERIOD_H3:  return 3 * 60 * 60;
       case PERIOD_H4:  return 4 * 60 * 60;
       case PERIOD_D1:  return 24 * 60 * 60;
       default:         return 0;
@@ -116,11 +141,12 @@ string TimeframeToLabel(ENUM_TIMEFRAMES tf)
 {
    switch(tf)
    {
-      case PERIOD_M15: return "M15";
       case PERIOD_M5: return "M5";
+      case PERIOD_M15: return "M15";
       case PERIOD_M30: return "M30";
       case PERIOD_H1:  return "H1";
       case PERIOD_H2:  return "H2";
+      case PERIOD_H3:  return "H3";
       case PERIOD_H4:  return "H4";
       case PERIOD_D1:  return "D1";
       default:         return "UNKNOWN";
@@ -140,9 +166,7 @@ bool IsManagedMagic(ulong magic)
 int OnInit()
 {
    
-  // ENUM_TIMEFRAMES tfs[] = {PERIOD_M15};
-   
-   ENUM_TIMEFRAMES tfs[] = { PERIOD_M15, PERIOD_M30, PERIOD_H1, PERIOD_H4};
+   ENUM_TIMEFRAMES tfs[] = {  PERIOD_M15, PERIOD_M30, PERIOD_H1, PERIOD_H2, PERIOD_H3, PERIOD_H4};
 
    ArrayResize(configs, ArraySize(tfs));
 
@@ -151,9 +175,12 @@ int OnInit()
       configs[i].tf = tfs[i];
       configs[i].cciHandle = iCCI(_Symbol, tfs[i], 14, PRICE_TYPICAL);
       configs[i].lastBarTime = 0;
+      configs[i].multiplier = TimeframeToMultiplier(tfs[i]);
       configs[i].waitNewCandle = false;
       configs[i].waitNewCandleTendency = false;
       configs[i].waitNewCandleInversion = false;
+      configs[i].signalReversao = NONE;
+      configs[i].signalTendencia = NONE;
       configs[i].magicNumber = GetMagicNumberByTimeframe(tfs[i]);
       configs[i].label = TimeframeToLabel(tfs[i]);
       configs[i].candleCandidateCounter = 0;
@@ -182,21 +209,38 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-  // showComments();
-   if(IsNewDay())
-      countOrders = 0;
-
-   if(countOrders > 100)
+   if (IsNewDay()){ 
+      BALANCE = AccountInfoDouble(ACCOUNT_BALANCE);
+   }
+   
+   countOrders = PositionsTotal();
+   if(countOrders > NUMBER_MAX_ROBOT)
       return;
       
-   if(ENABLE_MOVE_STOP)
-     moveAutomaticStopPerPoint();
+   if(!IS_TEST) {
+      showComments();
+      if(!IsMarketOpenNow(_Symbol, 30)){
+         closeAll();
+         printf("%s Mercado fechado!", _Symbol);
+         return; 
+      }
+      
+      if(!CheckDailyMaxLoss(PERCENT_LOSS_PER_DAY, "USD ")) {
+           printf("Perda maxima atingida.");
+           closeAll();
+           return;  
+      }
+   }
+      
+   if(PERCENTUAL_MOVE_STOP > 0)
+     MoveStopPorPontos();
 
    for(int i = 0; i < ArraySize(configs); i++)  {
-      /*if(MercadoLateral(configs[i].tf)) {
+      if(!IS_TEST && MercadoLateral(configs[i].tf)) {
         Print("Mercado lateral - NÃO operar");
         return;
-      }*/
+      }
+      
       if(!GetLastClosedCandles(configs[i].tf, candles))
          return;
          
@@ -217,19 +261,95 @@ void OnTick()
             configs[i].candleCandidateCounter--;
          }
       }
+      
       CheckSignalAndTrade(configs[i]);
-     // generateButtons(configs[i].signalReversao, configs[i].signalTendencia, configs[i].label, i + 1);
+      if(!IS_TEST) {
+         generateButtons(configs[i].signalReversao, configs[i].signalTendencia, configs[i].label, i + 1);
+      }
    }
 }
 
-void generateButtons(string signalReversao, string signalTendencia, string nome, int indice) {
-   color cor = signalReversao == "COMPRA" ? clrGreen : (signalReversao == "VENDA" ? clrRed : clrOrange);
-   color corT = signalTendencia == "COMPRA" ? clrGreen : (signalTendencia == "VENDA" ? clrRed : clrOrange);
-   string sinal = signalReversao == "COMPRA" ? "Buy" : (signalReversao == "VENDA" ? "Sell" : "");
-   string sinalT = signalTendencia == "COMPRA" ? "Buy" : (signalTendencia == "VENDA" ? "Sell" : "");
+bool CheckDailyMaxLoss(double percentLossPerDay, string log_prefix = "") {
+    if(PERCENT_LOSS_PER_DAY <= 0) {
+       return true;
+    }
+    static double daily_loss = 0.0;
+    static datetime current_day = 0;
+    double max_loss_dollars = BALANCE * (PERCENT_LOSS_PER_DAY / 100);
+    
+    datetime today = iTime(_Symbol, PERIOD_D1, 0);
+    
+    // Novo dia = reset perda
+    if(current_day != today) {
+        current_day = today;
+        daily_loss = 0.0;
+        if(log_prefix != "") Print(log_prefix, "🟢 NOVO DIA - Perda resetada");
+        return true;
+    }
+    
+    // Calcula perda do dia (todas posições)
+    double today_loss = 0.0;
+    HistorySelect(today, TimeCurrent());
+    
+    for(int i = 0; i < HistoryDealsTotal(); i++) {
+        ulong ticket = HistoryDealGetTicket(i);
+        if(HistoryDealGetInteger(ticket, DEAL_ENTRY) == DEAL_ENTRY_OUT) {
+            today_loss += HistoryDealGetDouble(ticket, DEAL_PROFIT);
+            today_loss += HistoryDealGetDouble(ticket, DEAL_SWAP);
+            today_loss += HistoryDealGetDouble(ticket, DEAL_COMMISSION);
+        }
+    }
+    
+    daily_loss = today_loss;
+    
+    if(daily_loss <= -max_loss_dollars) {
+        if(log_prefix != "") {
+            Print(log_prefix, "❌ MAX LOSS DIÁRIO ATINGIDO! $", 
+                  DoubleToString(MathAbs(daily_loss), 2), "/", max_loss_dollars);
+        }
+        return false;  // Pare de operar
+    }
+    
+    return true;  // Pode operar
+}
 
-   createButton("btnButton_reversao" + signalReversao + nome, 20, (550 - indice * 50), 200, 30, CORNER_LEFT_LOWER, 11, "Arial",  " Reversao " + sinal  + nome, clrWhite, cor, cor, false);
-   createButton("btnButton_tendencia" + signalTendencia + nome, 230, (550 - indice * 50), 200, 30, CORNER_LEFT_LOWER, 11, "Arial", " Tendencia " + sinalT + nome, clrWhite, corT, corT, false);
+bool IsMarketOpenNow(string symbol, int antecedencia_minutos = 0){
+   datetime now = TimeCurrent();        // horário do servidor
+   MqlDateTime dt;
+   TimeToStruct(now, dt);
+   ENUM_DAY_OF_WEEK day = (ENUM_DAY_OF_WEEK)dt.day_of_week;
+
+   datetime check_time = now - antecedencia_minutos * 60;
+   for(uint i = 0; i < 20; i++)  {
+      datetime from_time, to_time;
+      if(!SymbolInfoSessionTrade(symbol, day, i, from_time, to_time))
+         break;  // Não há mais sessões
+
+      MqlDateTime dta;
+      TimeToStruct(from_time, dta);
+      if(dta.year < 2000){
+         return true;
+      }
+      
+      if(from_time == 0 && to_time == 0)
+         continue;
+
+      // Verifica se check_time está DENTRO da sessão
+      if(check_time >= from_time && check_time < to_time)
+         return true;
+   }
+
+   return false;
+}
+
+void generateButtons(TYPE_NEGOCIATION signalReversao, TYPE_NEGOCIATION signalTendencia, string nome, int indice) {
+   color cor = signalReversao == BUY ? clrGreen : (signalReversao == SELL ? clrRed : clrOrange);
+   color corT = signalTendencia == BUY ? clrGreen : (signalTendencia == SELL ? clrRed : clrOrange);
+   string sinal = signalReversao == BUY ? "Buy" : (signalReversao == SELL ? "Sell" : "");
+   string sinalT = signalTendencia == BUY ? "Buy" : (signalTendencia == SELL ? "Sell" : "");
+
+   createButton("btnButton_reversao" + EnumToString(signalReversao) + nome, 20, (550 - indice * 50), 200, 30, CORNER_LEFT_LOWER, 11, "Arial",  " Reversao " + sinal  + nome, clrWhite, cor, cor, false);
+   createButton("btnButton_tendencia" + EnumToString(signalTendencia) + nome, 230, (550 - indice * 50), 200, 30, CORNER_LEFT_LOWER, 11, "Arial", " Tendencia " + sinalT + nome, clrWhite, corT, corT, false);
 }
 
 //+------------------------------------------------------------------+
@@ -266,6 +386,46 @@ bool IsNewBar(TimeframeConfig &config)
    }
 
    return false;
+}
+
+void closeBuyOrSell(int position, ulong magicNumber){
+   if(hasPositionOpenWithMagicNumber(position, magicNumber)){
+      ulong ticket = PositionGetTicket(position);
+      trade.PositionClose(ticket);
+   }
+   
+   ulong ticket = OrderGetTicket(position);
+   trade.OrderDelete(ticket);
+}
+
+void closeAll(){
+   int total = PositionsTotal() - 1;
+   for(int position = total; position >= 0; position--)  {
+      closeBuyOrSell(position, MAGIC_NUMBER);
+   }
+}
+
+bool hasPositionOpenWithMagicNumber(int position, ulong magicNumberRobot){
+   if(hasPositionOpen(position)){
+      ulong ticket = PositionGetTicket(position);
+      PositionSelectByTicket(ticket);
+      ulong magicNumber = PositionGetInteger(POSITION_MAGIC);
+      if(magicNumber == magicNumberRobot){
+         return true;
+      }
+   }
+   
+   return false;
+   
+}
+
+bool hasPositionOpen(int position){
+    string symbol = PositionGetSymbol(position);
+    if(PositionSelect(symbol) == true) {
+      return true;       
+    }
+    
+    return false;
 }
 //+------------------------------------------------------------------+
 bool HasPositionForMagic(ulong magicNumber)
@@ -396,7 +556,8 @@ void CheckSignalAndTrade(TimeframeConfig &config) {
          
          double proporcaoTempo = 1.2;
          MaximosMinimos maxMin = getMinOrMax(0, MIN_COUNT_CANDIDATE_CANDLE);
-         if(!config.waitNewCandleInversion && cciBuffer[0] > 100 && c1Bear && c2Bull && candles[0].close < candles[1].open){
+         double newVolume = ENABLE_TIMEFRAME_MULTIPLIER ? VOLUME * config.multiplier : VOLUME; 
+         if(ENABLE_REVERSION && !config.waitNewCandleInversion && cciBuffer[0] > 100 && c1Bear && c2Bull && candles[0].close < candles[1].open){
             int remainingSeconds = calcularCandleTime();
             if(remainingSeconds > config.tfSeconds / proporcaoTempo) {
                return ;
@@ -410,14 +571,15 @@ void CheckSignalAndTrade(TimeframeConfig &config) {
                return;
       
             trade.SetExpertMagicNumber(config.magicNumber);
-            bool ok = toSell(ask, Volume, sl, tp, "SELL_INVERSION" + config.label);
+            bool ok = toSell(ask, newVolume, sl, tp, "SELL_INVERSION" + config.label);
             if(ok) {
+               config.signalReversao = SELL;
                config.waitNewCandleInversion = true;
                countOrders++;
                Print("Sell executado com sucesso em ", config.label);
             }
          } 
-         else if(!config.waitNewCandleInversion && cciBuffer[0] < -100 && c1Bull && c2Bear && candles[0].close > candles[1].open){
+         else if(ENABLE_REVERSION && !config.waitNewCandleInversion && cciBuffer[0] < -100 && c1Bull && c2Bear && candles[0].close > candles[1].open){
             int remainingSeconds = calcularCandleTime();
             if(remainingSeconds > config.tfSeconds / proporcaoTempo) {
                return ;
@@ -431,14 +593,15 @@ void CheckSignalAndTrade(TimeframeConfig &config) {
                return;
       
             trade.SetExpertMagicNumber(config.magicNumber);
-            bool ok = toBuy(bid, Volume, sl, tp, "BUY_INVERSION" + config.label);
+            bool ok = toBuy(bid, newVolume, sl, tp, "BUY_INVERSION" + config.label);
             if(ok) {
+               config.signalReversao = BUY;
                config.waitNewCandleInversion = true;
                countOrders++;
                Print("BUY executado com sucesso em ", config.label);
             }
          } 
-         else if(cciBuffer[0] > -110 &&  c1Bear && c2Bull && IsBullish(config.candleCandidate) && candles[0].close < config.candleCandidate.open){
+         else if(ENABLE_TENDENCY && cciBuffer[0] > -110 &&  c1Bear && c2Bull && IsBullish(config.candleCandidate) && candles[0].close < config.candleCandidate.open){
             int remainingSeconds = calcularCandleTime();
             if(remainingSeconds > config.tfSeconds / proporcaoTempo) {
                return ;
@@ -451,15 +614,16 @@ void CheckSignalAndTrade(TimeframeConfig &config) {
                return;
       
             trade.SetExpertMagicNumber(config.magicNumber);
-            bool ok = toSell(ask, Volume, sl, tp, "SELL_" + config.label);
+            bool ok = toSell(ask, newVolume, sl, tp, "SELL_" + config.label);
             if(ok) {
+               config.signalTendencia = SELL;
                config.candleCandidateCounter = 0;
                config.candleCandidateTendency = NONE;
                countOrders++;
                Print("Sell executado com sucesso em ", config.label);
             }
             
-       } else if(cciBuffer[0] < 110 && c1Bull && c2Bear && IsBearish(config.candleCandidate) && candles[0].close > config.candleCandidate.open){
+       } else if(ENABLE_TENDENCY && cciBuffer[0] < 110 && c1Bull && c2Bear && IsBearish(config.candleCandidate) && candles[0].close > config.candleCandidate.open){
             int remainingSeconds = calcularCandleTime();
             if(remainingSeconds > config.tfSeconds / proporcaoTempo) {
                return ;
@@ -472,8 +636,9 @@ void CheckSignalAndTrade(TimeframeConfig &config) {
                return;
       
             trade.SetExpertMagicNumber(config.magicNumber);
-            bool ok = toBuy(bid, Volume, sl, tp, "BUY_" + config.label);
+            bool ok = toBuy(bid, newVolume, sl, tp, "BUY_" + config.label);
             if(ok) {
+               config.signalTendencia = BUY;
                config.candleCandidateCounter = 0;
                config.candleCandidateTendency = NONE;
                countOrders++;
@@ -626,42 +791,76 @@ int getCandleTendecy(int start, int end, int limit)
    
    return 0;
 }
+
 //+------------------------------------------------------------------+
-void moveAutomaticStopPerPoint()
+//| Move o Stop Loss por pontos                                      |
+//| pontos = distância em pontos do preço atual                      |
+//+------------------------------------------------------------------+
+void MoveStopPorPontos()
 {
-   for(int position = PositionsTotal() - 1; position >= 0; position--)
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+
+   for(int i = 0; i < PositionsTotal(); i++)
    {
-      ulong ticket = PositionGetTicket(position);
-      if(ticket == 0)
-         continue;
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
 
       if(!PositionSelectByTicket(ticket))
          continue;
 
-      ulong magicNumber = (ulong)PositionGetInteger(POSITION_MAGIC);
       string symbol = PositionGetString(POSITION_SYMBOL);
-      if(symbol == _Symbol && IsManagedMagic(magicNumber))  {
-         double currentPrice = PositionGetDouble(POSITION_PRICE_CURRENT);
-         double entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-         double profit = PositionGetDouble(POSITION_PROFIT);
-         double slPrice = PositionGetDouble(POSITION_SL);
-         double tpPrice = PositionGetDouble(POSITION_TP);
+      if(symbol != _Symbol)
+         continue;
 
-         double points = calcPoints(slPrice, entryPrice);
+      ulong magic = (ulong)PositionGetInteger(POSITION_MAGIC);
+      if(!IsManagedMagic(magic))
+         continue;
 
-         if(profit > 0)  {
-            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
-               double calculatedPrice = calcPrice(currentPrice, -points);
-               if(calculatedPrice >= entryPrice && calculatedPrice >= slPrice){
-                  double newSl = slPrice + (points * _Point);
-                  trade.PositionModify(ticket, NormalizeDouble(newSl, _Digits), tpPrice);
+      long type        = PositionGetInteger(POSITION_TYPE);
+      double slAtual   = PositionGetDouble(POSITION_SL);
+      double tpAtual   = PositionGetDouble(POSITION_TP);
+      double entry     = PositionGetDouble(POSITION_PRICE_OPEN);
+      double currentPrice = PositionGetDouble(POSITION_PRICE_CURRENT);
+      double profit = PositionGetDouble(POSITION_PROFIT);
+      double novoSL;
+
+      if (profit > 0) {
+         double pontosTP = calcPoints(entry, tpAtual);
+         double pontosMove = pontosTP  * PERCENTUAL_MOVE_STOP / 100;
+         double pontosSL = calcPoints(slAtual, currentPrice);
+         double pontosEntrada = calcPoints(entry, currentPrice);
+         double pontosProtecao = pontosMove * PERCENTUAL_MOVE_STOP / 100;
+         
+         if(type == POSITION_TYPE_BUY ) {
+            if (entry > slAtual) {
+               if (pontosEntrada > pontosMove) {
+                  novoSL = entry + (pontosProtecao * point);
+                  if(trade.PositionModify(ticket, novoSL, tpAtual))
+                     Print("Stop movido - ", entry, " - BUY");
+               }
+            } else {
+               if (pontosSL > pontosMove) {
+                  novoSL = slAtual + (pontosProtecao * point);
+                  if(trade.PositionModify(ticket, novoSL, tpAtual))
+                     Print("Stop movido - ", novoSL, " - BUY");
                }
             }
-            else if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL) {
-               double calculatedPrice = calcPrice(currentPrice, points);
-               if(calculatedPrice <= entryPrice && (slPrice == 0.0 || calculatedPrice <= slPrice)){
-                  double newSl = slPrice - (points * _Point);
-                  trade.PositionModify(ticket, NormalizeDouble(newSl, _Digits), tpPrice);
+         }
+   
+         if(type == POSITION_TYPE_SELL) {
+            if (entry < slAtual) {
+               if (pontosEntrada > pontosMove) {
+                  novoSL = entry - (pontosProtecao * point);
+                  if(trade.PositionModify(ticket, novoSL, tpAtual))
+                     Print("Stop movido - ", entry, " - SELL");
+               }
+            } else {
+               if (pontosSL > pontosMove) {
+                  novoSL = slAtual - (pontosProtecao * point);
+                  if(trade.PositionModify(ticket, novoSL, tpAtual))
+                     Print("Stop movido - ", novoSL, " - SELL");
                }
             }
          }

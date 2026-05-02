@@ -47,6 +47,8 @@ struct TimeframeConfig
    bool waitNewCandle;
    bool waitNewCandleTendency;
    bool waitNewCandleInversion;
+   bool enableTendency;
+   bool enableInversion;
    ulong magicNumber;
    TYPE_NEGOCIATION signalReversao;
    TYPE_NEGOCIATION signalTendencia;
@@ -60,6 +62,7 @@ input double VOLUME = 0.10;
 input double PERCENT_LOSS_PER_DAY = 2;
 input double PERCENTUAL_MOVE_STOP = 30;
 input double PROPORTION_TAKE_STOP = 2.0;
+ bool ENABLE_TIMEFRAME_POSITION_TENDENCY = false; // Nao funcionou - o timeframe do candle nao influenciou as logicas de negociacao
 input bool ENABLE_TIMEFRAME_MULTIPLIER = true;
 input bool ENABLE_SWING_TRADE = true;
 input bool ENABLE_REVERSION = true;
@@ -140,6 +143,24 @@ int TimeframeToSeconds(ENUM_TIMEFRAMES tf)
       default:         return 0;
    }
 }
+
+//+--- NAO FUNCIONOU ESSA IDEIA---------------------------------------------------------------+
+bool TimeframeToEnablePosition(ENUM_TIMEFRAMES tf, bool tendency)
+{
+   switch(tf)
+   {
+      case PERIOD_M5: return true;
+      case PERIOD_M15: return true;
+      case PERIOD_M30: return true;
+      case PERIOD_H1:  return true;
+      case PERIOD_H2:  return  true;
+      case PERIOD_H3:  return  true;
+      case PERIOD_H4:  return true;
+      case PERIOD_D1:  return true;
+      case PERIOD_W1:  return true;
+      default:         return true;
+   }
+}
 //+------------------------------------------------------------------+
 string TimeframeToLabel(ENUM_TIMEFRAMES tf)
 {
@@ -184,6 +205,8 @@ int OnInit()
       configs[i].waitNewCandle = false;
       configs[i].waitNewCandleTendency = false;
       configs[i].waitNewCandleInversion = false;
+      configs[i].enableTendency = TimeframeToEnablePosition(tfs[i], true);
+      configs[i].enableInversion = TimeframeToEnablePosition(tfs[i], false);
       configs[i].signalReversao = NONE;
       configs[i].signalTendencia = NONE;
       configs[i].magicNumber = GetMagicNumberByTimeframe(tfs[i]);
@@ -540,6 +563,9 @@ void CheckSignalAndTrade(TimeframeConfig &config) {
    bool c3Bear = IsBearish(candles[2]);
    bool c4Bear = IsBearish(candles[3]);
    
+   bool enableInversion = ENABLE_REVERSION && ((ENABLE_TIMEFRAME_POSITION_TENDENCY && config.enableInversion) || !ENABLE_TIMEFRAME_POSITION_TENDENCY);
+   bool enableTendency = ENABLE_TENDENCY && ((ENABLE_TIMEFRAME_POSITION_TENDENCY && config.enableTendency) || !ENABLE_TIMEFRAME_POSITION_TENDENCY);
+   
    int initialTendency = 0, finalTendency = 0;
    if(config.candleCandidateCounter <= 0) {
       initialTendency = getCandleTendecy(0, QTD_CANDLES, 3);  
@@ -562,7 +588,7 @@ void CheckSignalAndTrade(TimeframeConfig &config) {
          double proporcaoTempo = 1.2;
          MaximosMinimos maxMin = getMinOrMax(0, MIN_COUNT_CANDIDATE_CANDLE);
          double newVolume = ENABLE_TIMEFRAME_MULTIPLIER ? VOLUME * config.multiplier : VOLUME; 
-         if(ENABLE_REVERSION && !config.waitNewCandleInversion && cciBuffer[0] > 100 && c1Bear && c2Bull && candles[0].close < candles[1].open){
+         if(enableInversion && !config.waitNewCandleInversion && cciBuffer[0] > 100 && c1Bear && c2Bull && candles[0].close < candles[1].open){
             int remainingSeconds = calcularCandleTime();
             if(remainingSeconds > config.tfSeconds / proporcaoTempo) {
                return ;
@@ -584,7 +610,7 @@ void CheckSignalAndTrade(TimeframeConfig &config) {
                Print("Sell executado com sucesso em ", config.label);
             }
          } 
-         else if(ENABLE_REVERSION && !config.waitNewCandleInversion && cciBuffer[0] < -100 && c1Bull && c2Bear && candles[0].close > candles[1].open){
+         else if(enableInversion && !config.waitNewCandleInversion && cciBuffer[0] < -100 && c1Bull && c2Bear && candles[0].close > candles[1].open){
             int remainingSeconds = calcularCandleTime();
             if(remainingSeconds > config.tfSeconds / proporcaoTempo) {
                return ;
@@ -606,7 +632,7 @@ void CheckSignalAndTrade(TimeframeConfig &config) {
                Print("BUY executado com sucesso em ", config.label);
             }
          } 
-         else if(ENABLE_TENDENCY && cciBuffer[0] > -110 &&  c1Bear && c2Bull && IsBullish(config.candleCandidate) && candles[0].close < config.candleCandidate.open){
+         else if(enableTendency && cciBuffer[0] > -110 &&  c1Bear && c2Bull && IsBullish(config.candleCandidate) && candles[0].close < config.candleCandidate.open){
             int remainingSeconds = calcularCandleTime();
             if(remainingSeconds > config.tfSeconds / proporcaoTempo) {
                return ;
@@ -628,7 +654,7 @@ void CheckSignalAndTrade(TimeframeConfig &config) {
                Print("Sell executado com sucesso em ", config.label);
             }
             
-       } else if(ENABLE_TENDENCY && cciBuffer[0] < 110 && c1Bull && c2Bear && IsBearish(config.candleCandidate) && candles[0].close > config.candleCandidate.open){
+       } else if(enableTendency && cciBuffer[0] < 110 && c1Bull && c2Bear && IsBearish(config.candleCandidate) && candles[0].close > config.candleCandidate.open){
             int remainingSeconds = calcularCandleTime();
             if(remainingSeconds > config.tfSeconds / proporcaoTempo) {
                return ;
@@ -754,13 +780,13 @@ double getBodyOrWick(MqlRates &candle, bool body) {
    return MathAbs(bodyCandle - calcPoints(candle.high, candle.low));
 }
 //+------------------------------------------------------------------+
-int getCandleTendecy(int start, int end, int limit)
-{
+int getCandleTendecy(int start, int end, int limit) {
    int bearishCount345 = 0;
    int bullishCount345 = 0;
    int bearishCount = 0;
    int bullishCount = 0;
    int ehPavio = 0;
+   int ehGap = 0;
 
    for(int i = start; i < end; i++) {
       if(i+1 < end ) {
@@ -769,6 +795,12 @@ int getCandleTendecy(int start, int end, int limit)
 
          if(candles[i+1].open < candles[i].close)
             bullishCount++;
+            
+         if(candles[i+1].open != candles[i].close && candles[i+1].close != candles[i].open)
+            if(DetectarGap(candles[i], candles[i+1], 300)) {
+               ehGap++;
+               break;
+            }
       }
       
       double bodyCandle = getBodyOrWick(candles[i], true);
@@ -782,6 +814,9 @@ int getCandleTendecy(int start, int end, int limit)
       if(IsBullish(candles[i]))
          bullishCount345++;
    }
+      
+   if(ehGap > 0)
+      return 0;
    
    if (ehPavio >= limit) {
       return 0;
@@ -795,6 +830,29 @@ int getCandleTendecy(int start, int end, int limit)
    }
    
    return 0;
+}
+
+//+------------------------------------------------------------------+
+//| Detecta gap entre candles                                        |
+//+------------------------------------------------------------------+
+bool DetectarGap(MqlRates &actualCandle, MqlRates &lastCandle, double points) {
+   double highAtual = actualCandle.high;
+   double lowAtual  = actualCandle.low;
+
+   double highPrev = lastCandle.high;
+   double lowPrev  = lastCandle.low;
+
+   // Gap de alta
+   double pointsGapAlta = calcPoints(lowAtual, highPrev);
+   if(lowAtual > highPrev && pointsGapAlta > points)
+      return true;
+
+   // Gap de baixa
+   double pointsGapBaixa = calcPoints(lowPrev, highAtual);
+   if(highAtual < lowPrev && pointsGapAlta > points)
+      return true;
+
+   return false;
 }
 
 //+------------------------------------------------------------------+

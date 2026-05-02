@@ -61,7 +61,7 @@ input double PERCENT_LOSS_PER_DAY = 2;
 input double PERCENTUAL_MOVE_STOP = 30;
 input double PROPORTION_TAKE_STOP = 2.0;
 input bool ENABLE_TIMEFRAME_MULTIPLIER = true;
-input bool ENABLE_REVERSION = false;
+input bool ENABLE_REVERSION = true;
 input bool ENABLE_TENDENCY = true;
 input bool IS_TEST = false;
 int NUMBER_MAX_ROBOT = 40;
@@ -89,6 +89,7 @@ ulong GetMagicNumberByTimeframe(ENUM_TIMEFRAMES tf)
       case PERIOD_H3:  return MAGIC_NUMBER + 180;
       case PERIOD_H4:  return MAGIC_NUMBER + 240;
       case PERIOD_D1:  return MAGIC_NUMBER + 1440;
+      case PERIOD_W1:  return MAGIC_NUMBER + 30 * 1440;
       default:         return MAGIC_NUMBER;
    }
 }
@@ -117,7 +118,8 @@ double TimeframeToMultiplier(ENUM_TIMEFRAMES tf)
       case PERIOD_H3:  return 3.5;
       case PERIOD_H4:  return 4;
       case PERIOD_D1:  return 4.5;
-      default:         return 0;
+      case PERIOD_W1:  return 5;
+      default:         return 1;
    }
 }
 
@@ -133,6 +135,7 @@ int TimeframeToSeconds(ENUM_TIMEFRAMES tf)
       case PERIOD_H3:  return 3 * 60 * 60;
       case PERIOD_H4:  return 4 * 60 * 60;
       case PERIOD_D1:  return 24 * 60 * 60;
+      case PERIOD_W1:  return 30 * 24 * 60 * 60;
       default:         return 0;
    }
 }
@@ -149,6 +152,7 @@ string TimeframeToLabel(ENUM_TIMEFRAMES tf)
       case PERIOD_H3:  return "H3";
       case PERIOD_H4:  return "H4";
       case PERIOD_D1:  return "D1";
+      case PERIOD_W1:  return "W1";
       default:         return "UNKNOWN";
    }
 }
@@ -166,7 +170,7 @@ bool IsManagedMagic(ulong magic)
 int OnInit()
 {
    
-   ENUM_TIMEFRAMES tfs[] = {  PERIOD_M15, PERIOD_M30, PERIOD_H1, PERIOD_H2, PERIOD_H3, PERIOD_H4};
+   ENUM_TIMEFRAMES tfs[] = {  PERIOD_M15, PERIOD_M30, PERIOD_H1, PERIOD_H2, PERIOD_H3, PERIOD_H4, PERIOD_D1};
 
    ArrayResize(configs, ArraySize(tfs));
 

@@ -61,6 +61,7 @@ input double PERCENT_LOSS_PER_DAY = 2;
 input double PERCENTUAL_MOVE_STOP = 30;
 input double PROPORTION_TAKE_STOP = 2.0;
 input bool ENABLE_TIMEFRAME_MULTIPLIER = true;
+input bool ENABLE_SWING_TRADE = true;
 input bool ENABLE_REVERSION = true;
 input bool ENABLE_TENDENCY = true;
 input bool IS_TEST = false;
@@ -223,7 +224,7 @@ void OnTick()
       
    if(!IS_TEST) {
       showComments();
-      if(!IsMarketOpenNow(_Symbol, 30)){
+      if(!ENABLE_SWING_TRADE && !IsMarketOpenNow(_Symbol, 30)){
          closeAll();
          printf("%s Mercado fechado!", _Symbol);
          return; 

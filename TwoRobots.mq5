@@ -79,6 +79,7 @@ TimeframeConfig configs[];
 string labelName = "CandleTimer";
 MqlRates candles[];
 int countOrders = 0;
+bool countCycles = false;
 
 //+------------------------------------------------------------------+
 ulong GetMagicNumberByTimeframe(ENUM_TIMEFRAMES tf)
@@ -89,11 +90,14 @@ ulong GetMagicNumberByTimeframe(ENUM_TIMEFRAMES tf)
       case PERIOD_M15: return MAGIC_NUMBER + 15;
       case PERIOD_M30: return MAGIC_NUMBER + 30;
       case PERIOD_H1:  return MAGIC_NUMBER + 60;
-      case PERIOD_H2:  return MAGIC_NUMBER + 120;
-      case PERIOD_H3:  return MAGIC_NUMBER + 180;
-      case PERIOD_H4:  return MAGIC_NUMBER + 240;
-      case PERIOD_D1:  return MAGIC_NUMBER + 1440;
+      case PERIOD_H2:  return MAGIC_NUMBER + 2 * 60;
+      case PERIOD_H3:  return MAGIC_NUMBER + 3 * 60;
+      case PERIOD_H4:  return MAGIC_NUMBER + 4 * 60;
+      case PERIOD_H6:  return MAGIC_NUMBER + 6 * 60;
+      case PERIOD_H8:  return MAGIC_NUMBER + 8 * 60;
+      case PERIOD_D1:  return MAGIC_NUMBER + 24 * 60;
       case PERIOD_W1:  return MAGIC_NUMBER + 30 * 1440;
+      case PERIOD_MN1:  return MAGIC_NUMBER + 365 * 1440;
       default:         return MAGIC_NUMBER;
    }
 }
@@ -121,8 +125,11 @@ double TimeframeToMultiplier(ENUM_TIMEFRAMES tf)
       case PERIOD_H2:  return 3;
       case PERIOD_H3:  return 3.5;
       case PERIOD_H4:  return 4;
-      case PERIOD_D1:  return 4.5;
-      case PERIOD_W1:  return 5;
+      case PERIOD_H6:  return 4.5;
+      case PERIOD_H8:  return 5;
+      case PERIOD_D1:  return 5.5;
+      case PERIOD_W1:  return 6;
+      case PERIOD_MN1:  return 6.5;
       default:         return 1;
    }
 }
@@ -138,8 +145,11 @@ int TimeframeToSeconds(ENUM_TIMEFRAMES tf)
       case PERIOD_H2:  return 2 * 60 * 60;
       case PERIOD_H3:  return 3 * 60 * 60;
       case PERIOD_H4:  return 4 * 60 * 60;
+      case PERIOD_H6:  return 6 * 60 * 60;
+      case PERIOD_H8:  return 8 * 60 * 60;
       case PERIOD_D1:  return 24 * 60 * 60;
       case PERIOD_W1:  return 30 * 24 * 60 * 60;
+      case PERIOD_MN1:  return  365 * 24 * 60 * 60;
       default:         return 0;
    }
 }
@@ -156,8 +166,11 @@ bool TimeframeToEnablePosition(ENUM_TIMEFRAMES tf, bool tendency)
       case PERIOD_H2:  return  true;
       case PERIOD_H3:  return  true;
       case PERIOD_H4:  return true;
+      case PERIOD_H6:  return true;
+      case PERIOD_H8:  return true;
       case PERIOD_D1:  return true;
       case PERIOD_W1:  return true;
+      case PERIOD_MN1:  return true;
       default:         return true;
    }
 }
@@ -173,8 +186,11 @@ string TimeframeToLabel(ENUM_TIMEFRAMES tf)
       case PERIOD_H2:  return "H2";
       case PERIOD_H3:  return "H3";
       case PERIOD_H4:  return "H4";
+      case PERIOD_H6:  return "H6";
+      case PERIOD_H8:  return "H8";
       case PERIOD_D1:  return "D1";
       case PERIOD_W1:  return "W1";
+      case PERIOD_MN1:  return "MN1";
       default:         return "UNKNOWN";
    }
 }
@@ -192,7 +208,7 @@ bool IsManagedMagic(ulong magic)
 int OnInit()
 {
    
-   ENUM_TIMEFRAMES tfs[] = {  PERIOD_M15, PERIOD_M30, PERIOD_H1, PERIOD_H2, PERIOD_H3, PERIOD_H4, PERIOD_D1};
+   ENUM_TIMEFRAMES tfs[] = {  PERIOD_M15, PERIOD_M30, PERIOD_H1, PERIOD_H2, PERIOD_H3, PERIOD_H4, PERIOD_H6, PERIOD_H8, PERIOD_D1, PERIOD_W1, PERIOD_MN1};
 
    ArrayResize(configs, ArraySize(tfs));
 
@@ -241,14 +257,14 @@ void OnTick()
       BALANCE = AccountInfoDouble(ACCOUNT_BALANCE);
    }
    
-   countOrders = PositionsTotal();
-   if(countOrders > NUMBER_MAX_ROBOT)
-      return;
-      
+   
+   
    if(!IS_TEST) {
       showComments();
-      if(!ENABLE_SWING_TRADE && !IsMarketOpenNow(_Symbol, 30)){
-         closeAll();
+      if(!IsMarketOpenNow(30)){
+         if(!ENABLE_SWING_TRADE){
+            closeAll();
+         }
          printf("%s Mercado fechado!", _Symbol);
          return; 
       }
@@ -259,6 +275,11 @@ void OnTick()
            return;  
       }
    }
+   
+   countOrders = PositionsTotal();
+   if(countOrders > NUMBER_MAX_ROBOT)
+      return;
+      
       
    if(PERCENTUAL_MOVE_STOP > 0)
      MoveStopPorPontos();
@@ -277,6 +298,7 @@ void OnTick()
          configs[i].waitNewCandle = false;
          configs[i].waitNewCandleTendency = false;
          configs[i].waitNewCandleInversion = false;
+         countCycles = true;
          
          if(configs[i].candleCandidateCounter > 0){
             if(configs[i].candleCandidateCounter == MIN_COUNT_CANDIDATE_CANDLE) {
@@ -287,12 +309,13 @@ void OnTick()
                }
             }
             configs[i].candleCandidateCounter--;
+            DeleteHorizontalLinesByPrefix(configs[i].tf);
          }
       }
       
       CheckSignalAndTrade(configs[i]);
       if(!IS_TEST) {
-         generateButtons(configs[i].signalReversao, configs[i].signalTendencia, configs[i].label, i + 1);
+        // generateButtons(configs[i].signalReversao, configs[i].signalTendencia, configs[i].label, i + 1);
       }
    }
 }
@@ -341,32 +364,32 @@ bool CheckDailyMaxLoss(double percentLossPerDay, string log_prefix = "") {
     return true;  // Pode operar
 }
 
-bool IsMarketOpenNow(string symbol, int antecedencia_minutos = 0){
-   datetime now = TimeCurrent();        // horário do servidor
-   MqlDateTime dt;
-   TimeToStruct(now, dt);
-   ENUM_DAY_OF_WEEK day = (ENUM_DAY_OF_WEEK)dt.day_of_week;
+bool IsMarketOpenNow(int minutos = 0){
+   datetime agora = TimeCurrent();
+   
+   // Soma os minutos
+   datetime resultado = agora + (minutos * 60);
 
-   datetime check_time = now - antecedencia_minutos * 60;
-   for(uint i = 0; i < 20; i++)  {
-      datetime from_time, to_time;
-      if(!SymbolInfoSessionTrade(symbol, day, i, from_time, to_time))
-         break;  // Não há mais sessões
+   // Converte para estrutura
+   MqlDateTime tempo;
+   TimeToStruct(resultado, tempo);
 
-      MqlDateTime dta;
-      TimeToStruct(from_time, dta);
-      if(dta.year < 2000){
-         return true;
-      }
-      
-      if(from_time == 0 && to_time == 0)
-         continue;
+   int hora = tempo.hour;
+   int minuto = tempo.min;
 
-      // Verifica se check_time está DENTRO da sessão
-      if(check_time >= from_time && check_time < to_time)
-         return true;
-   }
+   // Antes de 18:00
+   if(hora < 18)
+      return true;
 
+   // Depois de 19:00
+   if(hora > 19)
+      return true;
+
+   // Exatamente 19:00:01+ também entra aqui
+   if(hora == 19 && minuto > 0)
+      return true;
+
+   // Entre 18:00 e 19:00 (inclusive)
    return false;
 }
 
@@ -568,15 +591,21 @@ void CheckSignalAndTrade(TimeframeConfig &config) {
    
    int initialTendency = 0, finalTendency = 0;
    if(config.candleCandidateCounter <= 0) {
-      initialTendency = getCandleTendecy(0, QTD_CANDLES, 3);  
+      initialTendency = getCandleTendecy(0, QTD_CANDLES, 3); 
+      if (countCycles && initialTendency != 0) {
+         Print("Timeframe ", EnumToString(config.tf), " - Executando checkagem de sinal - Tendencia ", initialTendency == 1 ? "BUY" : "SELL"); 
+         countCycles = false;
+      }
       if(initialTendency == -1 && c2Bear && c1Bull && candles[0].close > candles[1].open){
          config.candleCandidate = candles[0];
          config.candleCandidateTendency = BUY;
          config.candleCandidateCounter = MIN_COUNT_CANDIDATE_CANDLE;
+         drawHorizontalLine(candles[0].close, 0, "Horizontal_line_candleCandidato_" + EnumToString(config.tf) + "_" + TimeToString(TimeCurrent()), clrGreenYellow);
       } else  if(initialTendency == 1 && c2Bull && c1Bear && candles[0].close < candles[1].open){
          config.candleCandidate = candles[0];
          config.candleCandidateTendency = SELL;
          config.candleCandidateCounter = MIN_COUNT_CANDIDATE_CANDLE;
+         drawHorizontalLine(candles[0].close, 0, "Horizontal_line_candleCandidato_" + EnumToString(config.tf) + "_" + TimeToString(TimeCurrent()), clrGreenYellow);
       }
    } else {
       if (config.candleCandidateCounter < 4) {
@@ -588,6 +617,10 @@ void CheckSignalAndTrade(TimeframeConfig &config) {
          double proporcaoTempo = 1.2;
          MaximosMinimos maxMin = getMinOrMax(0, MIN_COUNT_CANDIDATE_CANDLE);
          double newVolume = ENABLE_TIMEFRAME_MULTIPLIER ? VOLUME * config.multiplier : VOLUME; 
+         if (countCycles) {
+            Print("Executando validação de sinal de 5 candles - Timeframe " + EnumToString(config.tf) + " - Contagem " + IntegerToString(config.candleCandidateCounter) + " - Tendencia " + EnumToString(config.candleCandidateTendency));
+            countCycles = false;
+         }
          if(enableInversion && !config.waitNewCandleInversion && cciBuffer[0] > 100 && c1Bear && c2Bull && candles[0].close < candles[1].open){
             int remainingSeconds = calcularCandleTime();
             if(remainingSeconds > config.tfSeconds / proporcaoTempo) {
@@ -679,6 +712,37 @@ void CheckSignalAndTrade(TimeframeConfig &config) {
       }
    }
 
+}
+
+void drawHorizontalLine(double price, datetime time, string nameLine, color indColor){
+   ObjectCreate(ChartID(),nameLine,OBJ_HLINE,0,time,price);
+   ObjectSetInteger(0,nameLine,OBJPROP_COLOR,indColor);
+   ObjectSetInteger(0,nameLine,OBJPROP_WIDTH,1);
+   ObjectMove(ChartID(),nameLine,0,time,price);
+}
+
+
+void DeleteHorizontalLinesByPrefix(ENUM_TIMEFRAMES labelTf) {
+   int total = ObjectsTotal(0, 0, -1);
+
+   for(int i = total - 1; i >= 0; i--) {
+      string nome = ObjectName(0, i, 0, -1);
+      if(nome == "") {
+         continue;
+      }
+      
+      string label = "Horizontal_line_candleCandidato_" + EnumToString(labelTf) + "_";
+      ENUM_OBJECT tipo = (ENUM_OBJECT)ObjectGetInteger(0, nome, OBJPROP_TYPE);
+      if(tipo == OBJ_HLINE && StringFind(nome, label) == 0) {
+         string data_str = StringSubstr(nome, StringLen(label));
+         datetime data = StringToTime(data_str);
+         if (TimeCurrent() > data) {
+            ObjectDelete(0, nome);
+         }
+      }
+   }
+
+   ChartRedraw();
 }
 //+------------------------------------------------------------------+
 string CandleType(const MqlRates &candle)
@@ -865,10 +929,10 @@ void MoveStopPorPontos()
    double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
 
-   for(int i = 0; i < PositionsTotal(); i++)
-   {
+   for(int i = 0; i < PositionsTotal(); i++) {
       ulong ticket = PositionGetTicket(i);
-      if(ticket == 0) continue;
+      if(ticket == 0)
+         continue;
 
       if(!PositionSelectByTicket(ticket))
          continue;
@@ -902,7 +966,7 @@ void MoveStopPorPontos()
                   novoSL = entry + (pontosProtecao * point);
                   if(trade.PositionModify(ticket, novoSL, tpAtual))
                      Print("Stop movido - ", entry, " - BUY");
-               }
+               } 
             } else {
                if (pontosSL > pontosMove) {
                   novoSL = slAtual + (pontosProtecao * point);

@@ -69,10 +69,12 @@ input bool ENABLE_TIMEFRAME_MULTIPLIER = true;
 input bool ENABLE_SWING_TRADE = true;
 input bool ENABLE_REVERSION = true;
 input bool ENABLE_TENDENCY = true;
+input bool ENABLE_AVERAGE_CROSSOVER_VALIDATION = true;
+input bool ENABLE_CCI_VALIDATION = true;
 input bool IS_TEST = false;
 int NUMBER_MAX_ROBOT = 40;
 double BALANCE = 0;
-int QTD_CANDLES = 5;
+int QTD_CANDLES = 7;
 ulong MAGIC_NUMBER = 8328138;
 int MIN_COUNT_CANDIDATE_CANDLE = 5;
 
@@ -704,7 +706,17 @@ void CheckSignalAndTrade(TimeframeConfig &config) {
          
          double proporcaoTempo = 1.2;
          MaximosMinimos maxMin = getMinOrMax(0, MIN_COUNT_CANDIDATE_CANDLE);
-         if(!config.waitNewCandleInversion && cciBuffer[0] > 100 && c1Bear && c2Bull && candles[0].close < candles[1].open){
+         int cruzamentoMedia = CruzamentoMedias(config.tf, 0);
+         double newVolume = ENABLE_TIMEFRAME_MULTIPLIER ? VOLUME * config.multiplier : VOLUME; 
+         if (countCycles) {
+            Print("Executando validação de sinal de 5 candles - Timeframe " + EnumToString(config.tf) + " - Contagem " + IntegerToString(config.candleCandidateCounter) + " - Tendencia " + EnumToString(config.candleCandidateTendency));
+            countCycles = false;
+         }
+         
+         if(!config.waitNewCandleInversion 
+             && (!ENABLE_AVERAGE_CROSSOVER_VALIDATION || (ENABLE_AVERAGE_CROSSOVER_VALIDATION && cruzamentoMedia == -1))
+             && (!ENABLE_CCI_VALIDATION || (ENABLE_CCI_VALIDATION && cciBuffer[0] > 100)) 
+             && c1Bear && c2Bull && candles[0].close < candles[1].open){
             int remainingSeconds = calcularCandleTime();
             if(remainingSeconds > config.tfSeconds / proporcaoTempo) {
                return ;
@@ -718,14 +730,17 @@ void CheckSignalAndTrade(TimeframeConfig &config) {
                return;
       
             trade.SetExpertMagicNumber(config.magicNumber);
-            bool ok = toSell(ask, VOLUME, sl, tp, "SELL_INVERSION" + config.label);
+            bool ok = toSell(ask, newVolume, sl, tp, "SELL_INVERSION" + config.label);
             if(ok) {
                config.waitNewCandleInversion = true;
                countOrders++;
                Print("Sell executado com sucesso em ", config.label);
             }
          } 
-         else if(!config.waitNewCandleInversion && cciBuffer[0] < -100 && c1Bull && c2Bear && candles[0].close > candles[1].open){
+         else if(!config.waitNewCandleInversion 
+             && (!ENABLE_AVERAGE_CROSSOVER_VALIDATION || (ENABLE_AVERAGE_CROSSOVER_VALIDATION && cruzamentoMedia == 1))
+             && (!ENABLE_CCI_VALIDATION || (ENABLE_CCI_VALIDATION && cciBuffer[0] < -100 )) 
+             && c1Bull && c2Bear && candles[0].close > candles[1].open){
             int remainingSeconds = calcularCandleTime();
             if(remainingSeconds > config.tfSeconds / proporcaoTempo) {
                return ;
@@ -739,14 +754,16 @@ void CheckSignalAndTrade(TimeframeConfig &config) {
                return;
       
             trade.SetExpertMagicNumber(config.magicNumber);
-            bool ok = toBuy(bid, VOLUME, sl, tp, "BUY_INVERSION" + config.label);
+            bool ok = toBuy(bid, newVolume, sl, tp, "BUY_INVERSION" + config.label);
             if(ok) {
                config.waitNewCandleInversion = true;
                countOrders++;
                Print("BUY executado com sucesso em ", config.label);
             }
          } 
-         else if(cciBuffer[0] > -110 &&  c1Bear && c2Bull && IsBullish(config.candleCandidate) && candles[0].close < config.candleCandidate.open){
+         else if((!ENABLE_AVERAGE_CROSSOVER_VALIDATION || (ENABLE_AVERAGE_CROSSOVER_VALIDATION && cruzamentoMedia == -1))
+             && (!ENABLE_CCI_VALIDATION || (ENABLE_CCI_VALIDATION && cciBuffer[0] > -100 ))
+             &&  c1Bear && c2Bull && IsBullish(config.candleCandidate) && candles[0].close < config.candleCandidate.open){
             int remainingSeconds = calcularCandleTime();
             if(remainingSeconds > config.tfSeconds / proporcaoTempo) {
                return ;
@@ -759,7 +776,7 @@ void CheckSignalAndTrade(TimeframeConfig &config) {
                return;
       
             trade.SetExpertMagicNumber(config.magicNumber);
-            bool ok = toSell(ask, VOLUME, sl, tp, "SELL_" + config.label);
+            bool ok = toSell(ask, newVolume, sl, tp, "SELL_" + config.label);
             if(ok) {
                config.candleCandidateCounter = 0;
                config.candleCandidateTendency = NONE;
@@ -767,7 +784,9 @@ void CheckSignalAndTrade(TimeframeConfig &config) {
                Print("Sell executado com sucesso em ", config.label);
             }
             
-       } else if(cciBuffer[0] < 110 && c1Bull && c2Bear && IsBearish(config.candleCandidate) && candles[0].close > config.candleCandidate.open){
+       } else if( (!ENABLE_AVERAGE_CROSSOVER_VALIDATION || (ENABLE_AVERAGE_CROSSOVER_VALIDATION && cruzamentoMedia == 1))
+             && (!ENABLE_CCI_VALIDATION || (ENABLE_CCI_VALIDATION && cciBuffer[0] < 110 ))
+             && c1Bull && c2Bear && IsBearish(config.candleCandidate) && candles[0].close > config.candleCandidate.open){
             int remainingSeconds = calcularCandleTime();
             if(remainingSeconds > config.tfSeconds / proporcaoTempo) {
                return ;
@@ -780,7 +799,7 @@ void CheckSignalAndTrade(TimeframeConfig &config) {
                return;
       
             trade.SetExpertMagicNumber(config.magicNumber);
-            bool ok = toBuy(bid, VOLUME, sl, tp, "BUY_" + config.label);
+            bool ok = toBuy(bid, newVolume, sl, tp, "BUY_" + config.label);
             if(ok) {
                config.candleCandidateCounter = 0;
                config.candleCandidateTendency = NONE;
@@ -1025,45 +1044,41 @@ void createButton(string nameLine, int xx, int yy, int largura, int altura, int 
 //| -1  = Cruzamento para baixo (venda)                              |
 //|  0  = Nenhum cruzamento                                          |
 //+------------------------------------------------------------------+
-int CruzamentoMedias(ENUM_TIMEFRAMES timeframe,
-                     int periodoRapido,
-                     int periodoLento,
-                     ENUM_MA_METHOD metodo = MODE_EMA,
-                     ENUM_APPLIED_PRICE preco = PRICE_CLOSE)
-{
-   // Buffers
-   double maRapida[2];
-   double maLenta[2];
+int CruzamentoMedias(ENUM_TIMEFRAMES timeframe, double pontosDistanciaMinima = 50) {
+   int fastHandle = iMA(_Symbol, PERIOD_M5, 9, 0, MODE_EMA, PRICE_CLOSE);
+   int slowHandle = iMA(_Symbol, PERIOD_M5, 21, 0, MODE_EMA, PRICE_CLOSE);
 
-   // Handles das médias
-   int handleRapida = iMA(_Symbol, timeframe, periodoRapido, 1, metodo, preco);
-   int handleLenta  = iMA(_Symbol, timeframe, periodoLento, 1, metodo, preco);
+   double fast[];
+   double slow[];
 
-   if(handleRapida == INVALID_HANDLE || handleLenta == INVALID_HANDLE)
-      return 0;
+   CopyBuffer(fastHandle, 0, 0, QTD_CANDLES + 2, fast);
+   CopyBuffer(slowHandle, 0, 0, QTD_CANDLES + 2, slow);
+   
+   bool buyCross = false;
+   bool sellCross = false;
+   for(int i = 0; i < QTD_CANDLES; i++) {
+      bool cruzouBaixa = fast[i + 1] > slow[i + 1] && fast[i] < slow[i];
+      bool cruzouAlta = fast[i + 1] < slow[i + 1] && fast[i] > slow[i];
+      double distancia = MathAbs(fast[i] - slow[i]);
+      bool isDistanciaAlcancada = distancia > pontosDistanciaMinima * _Point;
+      
+      if(cruzouAlta) {
+         Print("Cruzamento encontrado no candle: ", i);
+         buyCross = true;
+      }
+      
+      if(cruzouBaixa) {
+         Print("Cruzamento encontrado no candle: ", i);
+         sellCross = true;
+      }
+   }
 
-   // Copiar os últimos 2 valores
-   if(CopyBuffer(handleRapida, 0, 0, 2, maRapida) <= 0)
-      return 0;
-
-   if(CopyBuffer(handleLenta, 0, 0, 2, maLenta) <= 0)
-      return 0;
-
-   // Valores atuais e anteriores
-   double rapidaAtual   = maRapida[0];
-   double rapidaAnterior= maRapida[1];
-
-   double lentaAtual    = maLenta[0];
-   double lentaAnterior = maLenta[1];
-
-   // Cruzamento para cima
-   if(rapidaAnterior < lentaAnterior && rapidaAtual > lentaAtual)
-      return 1;
-
-   // Cruzamento para baixo
-   if(rapidaAnterior > lentaAnterior && rapidaAtual < lentaAtual)
+   if (sellCross ){
       return -1;
-
+   } else if (buyCross ){
+      return 1;
+   }
+   
    return 0;
 }
 

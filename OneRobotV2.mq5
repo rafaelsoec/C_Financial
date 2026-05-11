@@ -65,15 +65,15 @@ struct MaximosMinimos
 input double VOLUME = 0.01;
 input double PERCENT_LOSS_PER_DAY = 2;
 input double PERCENTUAL_MOVE_STOP = 40;
+input int QTD_CANDLES = 5;
 input bool ENABLE_TIMEFRAME_MULTIPLIER = true;
 input bool ENABLE_SWING_TRADE = true;
 input int NUMBER_MAX_ROBOT = 10;
 input bool IS_TEST = false;
 
- int NUMBER_MAX_ROBOT_BY_TIMEFRAME = 1;
+ int NUMBER_MAX_ROBOT_BY_TIMEFRAME = 3;
  
 double BALANCE = 0;
-int QTD_CANDLES = 6;
 ulong MAGIC_NUMBER = 97889902933;
 
 TimeframeConfig configs[];
@@ -81,7 +81,7 @@ string labelName = "CandleTimer";
 MqlRates candles[];
 int countOrders = 0;
 bool countCycles = false;
-double VALUE_MOVING_AVERAGE[3], VALUE_ADX[3];
+double VALUE_MOVING_AVERAGE[3], VALUE_MOVING_AVERAGE21[3], VALUE_ADX[3], VALUE_CCI[3];
 
 
 //+------------------------------------------------------------------+
@@ -91,6 +91,7 @@ ulong GetMagicNumberByTimeframe(ENUM_TIMEFRAMES tf)
    {
       case PERIOD_M5: return MAGIC_NUMBER + 5;
       case PERIOD_M15: return MAGIC_NUMBER + 15;
+      case PERIOD_M20: return MAGIC_NUMBER + 20;
       case PERIOD_M30: return MAGIC_NUMBER + 30;
       case PERIOD_H1:  return MAGIC_NUMBER + 60;
       case PERIOD_H2:  return MAGIC_NUMBER + 2 * 60;
@@ -122,7 +123,8 @@ double TimeframeToMultiplier(ENUM_TIMEFRAMES tf)
    switch(tf)
    {
       case PERIOD_M5: return 1;
-      case PERIOD_M15: return 1.5;
+      case PERIOD_M15: return 1;
+      case PERIOD_M20: return 1.5;
       case PERIOD_M30: return 2;
       case PERIOD_H1:  return 2.5;
       case PERIOD_H2:  return 3;
@@ -143,6 +145,7 @@ int TimeframeToSeconds(ENUM_TIMEFRAMES tf)
    {
       case PERIOD_M5: return 5 * 60;
       case PERIOD_M15: return 15 * 60;
+      case PERIOD_M20: return 20 * 60;
       case PERIOD_M30: return 30 * 60;
       case PERIOD_H1:  return 60 * 60;
       case PERIOD_H2:  return 2 * 60 * 60;
@@ -164,6 +167,7 @@ bool TimeframeToEnablePosition(ENUM_TIMEFRAMES tf, bool tendency)
    {
       case PERIOD_M5: return true;
       case PERIOD_M15: return true;
+      case PERIOD_M20: return true;
       case PERIOD_M30: return true;
       case PERIOD_H1:  return true;
       case PERIOD_H2:  return  true;
@@ -184,6 +188,7 @@ string TimeframeToLabel(ENUM_TIMEFRAMES tf)
    {
       case PERIOD_M5: return "M5";
       case PERIOD_M15: return "M15";
+      case PERIOD_M20: return "M20";
       case PERIOD_M30: return "M30";
       case PERIOD_H1:  return "H1";
       case PERIOD_H2:  return "H2";
@@ -222,13 +227,14 @@ bool IsManagedMagic(ulong magic)
 int OnInit()
 {
    
-   ENUM_TIMEFRAMES tfs[] = {  PERIOD_M15, PERIOD_M30, PERIOD_H1, PERIOD_H2, PERIOD_H3, PERIOD_H4  };
+   ENUM_TIMEFRAMES tfs[] = {  PERIOD_M15, PERIOD_M20, PERIOD_M30, PERIOD_H1, PERIOD_H2, PERIOD_H3, PERIOD_H4  };
    ArrayResize(configs, ArraySize(tfs));
 
    for(int i = 0; i < ArraySize(tfs); i++)
    {
       configs[i].tf = tfs[i];
       configs[i].lastBarTime = 0;
+      configs[i].maxRobots = NUMBER_MAX_ROBOT_BY_TIMEFRAME;
       configs[i].multiplier = TimeframeToMultiplier(tfs[i]);
       configs[i].waitNewCandle = false;
       configs[i].actualTendency = NONE;
@@ -242,14 +248,7 @@ int OnInit()
       configs[i].candleCandidateCounter = 0;
       configs[i].candleCandidateTendency = NONE;
       configs[i].tfSeconds = TimeframeToSeconds(tfs[i]);
-      configs[i].maxRobots = NUMBER_MAX_ROBOT_BY_TIMEFRAME;
       configs[i].maxRobotsHighRisk = NUMBER_MAX_ROBOT_BY_TIMEFRAME-1;
-
-      if(configs[i].cciHandle == INVALID_HANDLE)
-      {
-         Print("Erro ao criar handle do CCI para ", configs[i].label, ". Erro: ", GetLastError());
-         return INIT_FAILED;
-      }
    }
 
    Print("Family MJ MultiTF iniciado com sucesso.");
@@ -271,7 +270,7 @@ void OnTick()
       BALANCE = AccountInfoDouble(ACCOUNT_BALANCE);
    }
    
-   if(PositionsTotal() > NUMBER_MAX_ROBOT) {
+   if(PositionsTotal() > NUMBER_MAX_ROBOT * NUMBER_MAX_ROBOT_BY_TIMEFRAME) {
       return;
    }
    
@@ -296,19 +295,24 @@ void OnTick()
       if(PERCENTUAL_MOVE_STOP > 0)
         MoveStopPorPontos();
   // }
-
+  
    for(int i = 0; i < ArraySize(configs); i++)  {
       if(!GetLastClosedCandles(configs[i].tf, candles))
          return;
          
-      if (!GetMovingAverage(configs[i].tf))
+      if (!GetMovingAverage(configs[i].tf, 50 , VALUE_MOVING_AVERAGE))
          return;
          
       if (!GetAdx(configs[i].tf))
          return;
          
+      //if (!GetCci(configs[i].tf))
+     //    return;
+         
       if(IsNewBar(configs[i])) {
          VerifyTendency(configs[i]);
+         if(!IS_TEST)
+            DeleteHorizontalLinesByPrefix(configs[i].tf);
       }
    }
 } 
@@ -412,10 +416,10 @@ void MoveStopPorPontos()
          if(type == POSITION_TYPE_BUY ) {
             
             if (entry > slAtual) {
-               if (pontosEntrada > pontosMove) {
-                  novoSL = entry + (pontosProtecao * point);
+               if (pontosEntrada > pontosMove * 0.5) {
+                  novoSL = entry + (pontosProtecao * 0.5 * point);
                   if(trade.PositionModify(ticket, novoSL, tpAtual))
-                     Print("Stop movido - ", entry, " - BUY");
+                     Print("Stop movido - Protecao - ", entry, " - BUY");
                } 
             } else {
                if (pontosSL > pontosMove) {
@@ -428,10 +432,10 @@ void MoveStopPorPontos()
    
          if(type == POSITION_TYPE_SELL) {
             if (entry < slAtual) {
-               if (pontosEntrada > pontosMove) {
-                  novoSL = entry - (pontosProtecao * point);
+               if (pontosEntrada > pontosMove * 0.5) {
+                  novoSL = entry - (pontosProtecao * 0.5 * point);
                   if(trade.PositionModify(ticket, novoSL, tpAtual))
-                     Print("Stop movido - ", entry, " - SELL");
+                     Print("Stop movido - Protecao - ", entry, " - SELL");
                }
             } else {
                if (pontosSL > pontosMove) {
@@ -441,24 +445,26 @@ void MoveStopPorPontos()
                }
             }
          }
-      }/* else if(profit < 0) {
+      } /*else if(profit < 0) {
          if(type == POSITION_TYPE_BUY ) {
             ENUM_TIMEFRAMES tf = getTfByComment(PositionGetString(POSITION_COMMENT));
             if(tf != PERIOD_MN1) {
-               if (GetMovingAverage(tf) && GetAdx(tf)) {
-                  if ((VALUE_MOVING_AVERAGE[0] > currentPrice && VALUE_MOVING_AVERAGE[1] > currentPrice ) || (VALUE_ADX[2] > VALUE_ADX[1])) {
-                     bool ok = trade.Sell(volume, _Symbol, currentPrice, tpAtual, slAtual, "SELL_REVERSION_" + EnumToString(tf));
+               if (GetLastClosedCandles(tf, candles)) {
+                  MaximosMinimos maxMix = getMinOrMax(1, QTD_CANDLES * 2);
+                  if (currentPrice < maxMix.low) {
+                   //  bool ok = trade.Sell(volume, _Symbol, currentPrice, tpAtual, slAtual, "SELL_REVERSION_" + EnumToString(tf));
                      if(trade.PositionClose(ticket, 0))
-                        Print("Posicao encerrada - SELL");
+                        Print("Posicao encerrada - BUY");
                   }
                }
             }
          } else {
             ENUM_TIMEFRAMES tf = getTfByComment(PositionGetString(POSITION_COMMENT));
             if(tf != PERIOD_MN1) {
-               if (GetMovingAverage(tf) && GetAdx(tf)) {
-                  if ((VALUE_MOVING_AVERAGE[0] < currentPrice && VALUE_MOVING_AVERAGE[1] < currentPrice)  || (VALUE_ADX[2] < VALUE_ADX[1])) {
-                     bool ok = trade.Buy(volume, _Symbol, currentPrice, tpAtual, slAtual, "BUY_REVERSION_" + EnumToString(tf));
+               if (GetLastClosedCandles(tf, candles)) {
+                  MaximosMinimos maxMix = getMinOrMax(1, QTD_CANDLES * 2);
+                  if (currentPrice > maxMix.high) {
+                   //  bool ok = trade.Buy(volume, _Symbol, currentPrice, tpAtual, slAtual, "BUY_REVERSION_" + EnumToString(tf));
                      if(trade.PositionClose(ticket, 0))
                         Print("Posicao encerrada - SELL");
                   }
@@ -639,7 +645,7 @@ bool GetLastClosedCandles(ENUM_TIMEFRAMES tf, MqlRates &rates[])
 {
    ArraySetAsSeries(rates, true);
 
-   int copied = CopyRates(_Symbol, tf, 0, QTD_CANDLES, rates);
+   int copied = CopyRates(_Symbol, tf, 0, QTD_CANDLES * 2, rates);
    if(copied < QTD_CANDLES)
    {
       Print("Erro ao copiar candles de ", TimeframeToLabel(tf), ". Copiados: ", copied, " Erro: ", GetLastError());
@@ -667,14 +673,26 @@ bool GetAdx(ENUM_TIMEFRAMES tf) {
    return true;
 }
 
-bool GetMovingAverage(ENUM_TIMEFRAMES tf) {   
+bool GetCci(ENUM_TIMEFRAMES tf) { 
+   // Handle ADX
+   int handleCCI = iCCI(_Symbol, tf, 14, PRICE_TYPICAL);
+   if(handleCCI == INVALID_HANDLE)
+      return false;
+
+   if(CopyBuffer(handleCCI, 0, 0, 3, VALUE_CCI) <= 0)
+      return false;
+       
+   return true;
+}
+
+bool GetMovingAverage(ENUM_TIMEFRAMES tf, int period, double &buffer[]) {   
    // Handle MA
-   int handleMA = iMA(_Symbol, tf, 50, 0, MODE_EMA, PRICE_CLOSE);
+   int handleMA = iMA(_Symbol, tf, period, 0, MODE_EMA, PRICE_CLOSE);
    if(handleMA == INVALID_HANDLE)
       return false;
 
    // Pegando últimos 3 valores da média
-   if(CopyBuffer(handleMA, 0, 0, 3, VALUE_MOVING_AVERAGE) <= 0)
+   if(CopyBuffer(handleMA, 0, 0, 3, buffer) <= 0)
       return false;
 
    return true;
@@ -688,10 +706,12 @@ void VerifyTendency(TimeframeConfig &config) {
    int initialTendency = getCandleTendecy(index, QTD_CANDLES, 3);
    datetime actualTime = candles[index].time;
    double precoAtual = candles[0].close;
+   double minAnterior = candles[1].open;
    double newVolume = NormalizeVolume(ENABLE_TIMEFRAME_MULTIPLIER ? VOLUME * config.multiplier : VOLUME);
         
    if(initialTendency == -1){
-      if (VALUE_MOVING_AVERAGE[0] > precoAtual && VALUE_MOVING_AVERAGE[1] > precoAtual && VALUE_MOVING_AVERAGE[2] > precoAtual && VALUE_ADX[2] > VALUE_ADX[1]) {
+      if (VALUE_MOVING_AVERAGE[0] > precoAtual && VALUE_MOVING_AVERAGE[1] > precoAtual && VALUE_MOVING_AVERAGE[2] > precoAtual 
+         && VALUE_ADX[2] > VALUE_ADX[1] ) {
          config.actualTendency = SELL;
          MaximosMinimos maxMin = getMinOrMax(1, QTD_CANDLES);
          double sl = maxMin.high;
@@ -701,18 +721,27 @@ void VerifyTendency(TimeframeConfig &config) {
          double pointsDiffAverage = calcPoints(VALUE_MOVING_AVERAGE[0], precoAtual); 
          double pointsDiffSl = calcPoints(precoAtual, sl); 
          if(pointsDiffAverage < pointsDiffSl) {
-            return;
+          //  return;
          }
-
+         
          trade.SetExpertMagicNumber(config.magicNumber);
+         datetime expiration = TimeCurrent() + config.tfSeconds * 3;
+         drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL" + TimeToString(expiration), clrBlueViolet);
+         if (IsTrendSaturated(SELL, precoAtual, maxMin)) {
+            //double newPrice = calcPrice(precoAtual, diff * 0.3);
+          //  trade.SellLimit(newVolume, newPrice, _Symbol, sl, tp, ORDER_TIME_SPECIFIED, expiration, "SELL_TENDENCY_SATURED_" + config.label);
+            return;
+         }  
+
          bool ok = trade.Sell(newVolume, _Symbol, precoAtual, sl, tp, "SELL_TENDENCY_" + config.label);
-         drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL" + TimeToString(TimeCurrent()), clrBlueViolet);
          if(ok){
+            config.maxRobots = NUMBER_MAX_ROBOT_BY_TIMEFRAME;
             Print("SELL TENDENCY executado com sucesso em ", config.label);
          }
       }
    } else  if(initialTendency == 1 ){
-      if (VALUE_MOVING_AVERAGE[0] < precoAtual && VALUE_MOVING_AVERAGE[1] < precoAtual && VALUE_MOVING_AVERAGE[2] < precoAtual && VALUE_ADX[1] > VALUE_ADX[2]) {
+      if (VALUE_MOVING_AVERAGE[0] < precoAtual && VALUE_MOVING_AVERAGE[1] < precoAtual && VALUE_MOVING_AVERAGE[2] < precoAtual 
+         && VALUE_ADX[1] > VALUE_ADX[2]  ) {
          config.actualTendency = BUY;
          MaximosMinimos maxMin = getMinOrMax(1, QTD_CANDLES);
          double sl = maxMin.low;
@@ -722,14 +751,22 @@ void VerifyTendency(TimeframeConfig &config) {
          double pointsDiffAverage = calcPoints(VALUE_MOVING_AVERAGE[0], precoAtual); 
          double pointsDiffSl = calcPoints(precoAtual, sl); 
          if(pointsDiffAverage < pointsDiffSl) {
-            return;
+         //   return;
          }
-
          
          trade.SetExpertMagicNumber(config.magicNumber);
-         drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_BUY" + TimeToString(TimeCurrent()), clrYellow);
+         datetime expiration = TimeCurrent() + config.tfSeconds * 3;
+         drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_BUY" + TimeToString(expiration), clrYellow);
+         if (IsTrendSaturated(BUY, precoAtual, maxMin)) {
+          //  trade.Buy(newVolume, _Symbol, precoAtual, sl, tp, "BUY_TENDENCY_SATURED_" + config.label);
+        //      double newPrice = calcPrice(precoAtual, -diff * 0.3);
+        //      trade.BuyLimit(newVolume, newPrice, _Symbol, sl, tp, ORDER_TIME_SPECIFIED, expiration, "BUY_TENDENCY_SATURED_" + config.label);
+            return;
+         }  
+         
          bool ok = trade.Buy(newVolume, _Symbol, precoAtual, sl, tp, "BUY_TENDENCY_" + config.label);
          if(ok){
+            config.maxRobots = NUMBER_MAX_ROBOT_BY_TIMEFRAME;
             Print("BUY TENDENCY executado com sucesso em ", config.label);
          }
       }
@@ -935,6 +972,42 @@ string transformarCandleTime() {
    return StringFormat("%02d:%02d", minutes, seconds);
 }
 
+bool IsTrendSaturated(TYPE_NEGOCIATION type, double precoAtual, MaximosMinimos &mm){
+   // distância do preço para EMA50
+   double distanceMA = calcPoints(precoAtual, VALUE_MOVING_AVERAGE[0]);
+   double range = calcPoints(mm.high, mm.low);
+
+   // candle atual muito grande
+   double body = getBodyOrWick(candles[1], true);
+   
+   if(distanceMA > range * 0.7)
+      return true;
+
+   if(VALUE_ADX[0] > 40)
+      return true;
+
+   if(body > range * 0.5)
+      return true;
+
+   // =========================
+   // SATURAÇÃO COMPRA
+   // =========================
+   if(type == BUY)   {
+      // perda de força da tendência
+      if(VALUE_ADX[1] < VALUE_ADX[2])
+         return true;
+   }
+
+   // =========================
+   // SATURAÇÃO VENDA
+   // =========================
+   if(type == SELL)  {
+      if(VALUE_ADX[2] < VALUE_ADX[1])
+         return true;
+   }
+
+   return false;
+}
 
 void createButton(string nameLine, int xx, int yy, int largura, int altura, int canto, int tamanho, string fonte, string text, long corTexto, long corFundo, long corBorda, bool oculto){
    ObjectCreate(ChartID(),nameLine,OBJ_BUTTON,0,0,0);

@@ -47,6 +47,7 @@ struct TimeframeConfig
    TYPE_NEGOCIATION actualTendency;
    string label;
    MqlRates candleCandidate;
+   MqlRates lastCandleCandidate;
    int candleCandidateCounter;
    TYPE_NEGOCIATION candleCandidateTendency;
 };
@@ -65,10 +66,13 @@ struct MaximosMinimos
 input double VOLUME = 0.01;
 input double PERCENT_LOSS_PER_DAY = 2;
 input double PERCENTUAL_MOVE_STOP = 40;
+input double PERCENTUAL_ACCEPTABLE_CANDLE_BODY = 70;
 input int QTD_CANDLES = 5;
+ input bool ENABLE_ENGOLFO = true;
+ bool ENABLE_MULTI_ROBOTS_IN_PROFIT = false;
 input bool ENABLE_TIMEFRAME_MULTIPLIER = true;
-input bool DISABLED_SECONDARY_VALIDATIONS = true;
-input bool DISABLED_LATERAL_MARKET_VALIDATIONS = true;
+ bool DISABLED_SECONDARY_VALIDATIONS = true;
+ bool DISABLED_LATERAL_MARKET_VALIDATIONS = true;
 input bool DISABLED_ADX_SIZE_VALIDATIONS = true;
 input bool ENABLE_SWING_TRADE = true;
 input int NUMBER_MAX_ROBOT = 10;
@@ -77,14 +81,17 @@ input bool IS_TEST = false;
  int NUMBER_MAX_ROBOT_BY_TIMEFRAME = 3;
  
 double BALANCE = 0;
+double COUNTER_LOSS = 0, COUNTER_PROFIT = 0;
 ulong MAGIC_NUMBER = 97889902933;
 
 TimeframeConfig configs[];
 string labelName = "CandleTimer";
 MqlRates candles[];
+MqlTick tick;        
 int countOrders = 0;
 bool countCycles = false;
-double VALUE_MOVING_AVERAGE[3], VALUE_MOVING_AVERAGE21[3], VALUE_ADX[3], VALUE_CCI[3];
+double VALUE_MOVING_AVERAGE[3], VALUE_MOVING_AVERAGE21[3], VALUE_ADX[3], VALUE_CCI[3], PROPORTION_TAKE_STOP = 2;
+int MIN_COUNT_CANDIDATE_CANDLE = 5, BUY_COUNT = 0, SELL_COUNT = 0;
 
 
 //+------------------------------------------------------------------+
@@ -221,7 +228,7 @@ bool IsManagedMagic(ulong magic)
 int OnInit()
 {
    
-   ENUM_TIMEFRAMES tfs[] = {  PERIOD_M10, PERIOD_M15, PERIOD_M20, PERIOD_M30, PERIOD_H1, PERIOD_H2, PERIOD_H3, PERIOD_H4  };
+   ENUM_TIMEFRAMES tfs[] = {  PERIOD_M10 , PERIOD_M15, PERIOD_M20, PERIOD_M30, PERIOD_H1, PERIOD_H2, PERIOD_H3, PERIOD_H4  };
    ArrayResize(configs, ArraySize(tfs));
 
    for(int i = 0; i < ArraySize(tfs); i++)
@@ -249,17 +256,14 @@ int OnInit()
    return INIT_SUCCEEDED;
 }
 //+------------------------------------------------------------------+
-void OnDeinit(const int reason)
-{
-   for(int i = 0; i < ArraySize(configs); i++)
-   {
+void OnDeinit(const int reason) {
+   for(int i = 0; i < ArraySize(configs); i++) {
       if(configs[i].cciHandle != INVALID_HANDLE)
          IndicatorRelease(configs[i].cciHandle);
    }
 }
 //+------------------------------------------------------------------+
-void OnTick()
-{
+void OnTick() {
    if (IsNewDay()){ 
       BALANCE = AccountInfoDouble(ACCOUNT_BALANCE);
    }
@@ -268,26 +272,29 @@ void OnTick()
       return;
    }
    
-   if(!IS_TEST) {
-      showComments();
-      if(!ENABLE_SWING_TRADE){
-         if(!IsMarketOpenNow(30)){
-            printf("%s Mercado fechado!", _Symbol);
-            closeAll();
-            return; 
+   if(HasNewCandle(PERIOD_M1)) {
+      if(!IS_TEST) {
+         showComments();
+         if(!ENABLE_SWING_TRADE){
+   
+            if(!IsMarketOpenNow(30)){
+               printf("%s Mercado fechado!", _Symbol);
+               closeAll();
+               return; 
+            }
+         }
+         
+         COUNTER_PROFIT = 0;
+         COUNTER_LOSS = 0;
+         if(!CheckDailyMaxLoss(PERCENT_LOSS_PER_DAY, "USD ")) {
+              printf("Perda maxima atingida.");
+              closeAll();
+              return;  
          }
       }
-      
-      if(!CheckDailyMaxLoss(PERCENT_LOSS_PER_DAY, "USD ")) {
-           printf("Perda maxima atingida.");
-           closeAll();
-           return;  
-      }
-   }
    
-   if(HasNewCandle(PERIOD_M1)) {
       if(PERCENTUAL_MOVE_STOP > 0)
-        MoveStopPorPontos();
+         MoveStopPorPontos();
    }
   
    for(int i = 0; i < ArraySize(configs); i++)  {
@@ -299,15 +306,31 @@ void OnTick()
          
       if (!GetAdx(configs[i].tf))
          return;
-         
-      //if (!GetCci(configs[i].tf))
-     //    return;
+      
+      if(ENABLE_ENGOLFO) {
+         VerifyEngolfo(configs[i]);
+      } 
          
       if(IsNewBar(configs[i])) {
+         configs[i].waitNewCandle = false;
+         
+         if(configs[i].candleCandidateCounter > 0){
+            if(configs[i].candleCandidateCounter == MIN_COUNT_CANDIDATE_CANDLE) {
+               if ((configs[i].candleCandidateTendency == BUY && IsBearish(candles[1])) || (configs[i].candleCandidateTendency == SELL && IsBullish(candles[1])) ) {
+                  configs[i].candleCandidateCounter = 0;
+               } else {
+                  configs[i].candleCandidate = candles[1];
+                  configs[i].lastCandleCandidate = candles[2];                  
+               }
+            }
+            configs[i].candleCandidateCounter--;
+         }
+         
          VerifyTendency(configs[i]);
+          
          if(!IS_TEST)
             DeleteHorizontalLinesByPrefix(configs[i].tf);
-      }
+      }  
    }
 } 
 
@@ -400,15 +423,17 @@ void MoveStopPorPontos()
       double volume = PositionGetDouble(POSITION_VOLUME);
       double novoSL;
 
+      BUY_COUNT = 0;
+      SELL_COUNT = 0;
+      double pontosTP = calcPoints(entry, tpAtual);
+      double pontosMove = pontosTP  * PERCENTUAL_MOVE_STOP / 100;
+      double pontosSL = calcPoints(slAtual, currentPrice);
+      double pontosEntrada = calcPoints(entry, currentPrice);
+      double pontosProtecao = pontosMove * PERCENTUAL_MOVE_STOP / 100;
+      
       if (profit > 0) {
-         double pontosTP = calcPoints(entry, tpAtual);
-         double pontosMove = pontosTP  * PERCENTUAL_MOVE_STOP / 100;
-         double pontosSL = calcPoints(slAtual, currentPrice);
-         double pontosEntrada = calcPoints(entry, currentPrice);
-         double pontosProtecao = pontosMove * PERCENTUAL_MOVE_STOP / 100;
-         
          if(type == POSITION_TYPE_BUY ) {
-            
+            BUY_COUNT++;
             if (entry > slAtual) {
                if (pontosEntrada > pontosMove * 0.5) {
                   novoSL = entry + (pontosProtecao * 0.5 * point);
@@ -425,6 +450,7 @@ void MoveStopPorPontos()
          }
    
          if(type == POSITION_TYPE_SELL) {
+            SELL_COUNT++;
             if (entry < slAtual) {
                if (pontosEntrada > pontosMove * 0.5) {
                   novoSL = entry - (pontosProtecao * 0.5 * point);
@@ -439,33 +465,14 @@ void MoveStopPorPontos()
                }
             }
          }
-      } /*else if(profit < 0) {
+      } else if(profit < 0) {
          if(type == POSITION_TYPE_BUY ) {
-            ENUM_TIMEFRAMES tf = getTfByComment(PositionGetString(POSITION_COMMENT));
-            if(tf != PERIOD_MN1) {
-               if (GetLastClosedCandles(tf, candles)) {
-                  MaximosMinimos maxMix = getMinOrMax(1, QTD_CANDLES * 2);
-                  if (currentPrice < maxMix.low) {
-                   //  bool ok = trade.Sell(volume, _Symbol, currentPrice, tpAtual, slAtual, "SELL_REVERSION_" + EnumToString(tf));
-                     if(trade.PositionClose(ticket, 0))
-                        Print("Posicao encerrada - BUY");
-                  }
-               }
-            }
+           BUY_COUNT--;
          } else {
-            ENUM_TIMEFRAMES tf = getTfByComment(PositionGetString(POSITION_COMMENT));
-            if(tf != PERIOD_MN1) {
-               if (GetLastClosedCandles(tf, candles)) {
-                  MaximosMinimos maxMix = getMinOrMax(1, QTD_CANDLES * 2);
-                  if (currentPrice > maxMix.high) {
-                   //  bool ok = trade.Buy(volume, _Symbol, currentPrice, tpAtual, slAtual, "BUY_REVERSION_" + EnumToString(tf));
-                     if(trade.PositionClose(ticket, 0))
-                        Print("Posicao encerrada - SELL");
-                  }
-               }
-            }
+           SELL_COUNT--;
          }
-      }*/
+      }
+      
    }
 }
 
@@ -568,7 +575,11 @@ bool CheckDailyMaxLoss(double percentLossPerDay, string log_prefix = "") {
     for(int i = 0; i < HistoryDealsTotal(); i++) {
         ulong ticket = HistoryDealGetTicket(i);
         if(HistoryDealGetInteger(ticket, DEAL_ENTRY) == DEAL_ENTRY_OUT) {
-            today_loss += HistoryDealGetDouble(ticket, DEAL_PROFIT);
+            double profit =  HistoryDealGetDouble(ticket, DEAL_PROFIT);
+            COUNTER_PROFIT += profit > 0 ? 1 : 0;
+            COUNTER_LOSS += profit < 0 ? 1 : 0;
+            
+            today_loss += profit;
             today_loss += HistoryDealGetDouble(ticket, DEAL_SWAP);
             today_loss += HistoryDealGetDouble(ticket, DEAL_COMMISSION);
         }
@@ -596,7 +607,7 @@ bool IsMarketOpenNow(int minutos = 0){
 
    int hora = tempo.hour;
    int minuto = tempo.min;
-   if(hora > 17 && minuto > 20 && hora < 19 && minuto < 30){   
+   if(hora >= 17 && minuto  >= 30 && hora <= 19){   
       return false;
    }
 
@@ -692,20 +703,162 @@ bool GetMovingAverage(ENUM_TIMEFRAMES tf, int period, double &buffer[]) {
    return true;
 }
 
+void VerifyEngolfo(TimeframeConfig &config) {
+   bool c1Bull = IsBullish(candles[0]);
+   bool c2Bull = IsBullish(candles[1]);
+   bool c3Bull = IsBullish(candles[2]);
+   bool c4Bull = IsBullish(candles[3]);
+
+   bool c1Bear = IsBearish(candles[0]);
+   bool c2Bear = IsBearish(candles[1]);
+   bool c3Bear = IsBearish(candles[2]);
+   bool c4Bear = IsBearish(candles[3]);
+   
+   int initialTendency = 0, finalTendency = 0;
+   if(config.candleCandidateCounter <= 0) {
+      initialTendency = getCandleTendecy(1, QTD_CANDLES, 3, true, 0);  
+      if(initialTendency == -1 && c2Bear && c1Bull && candles[0].close > candles[1].open){
+         drawVerticalLine(candles[0].time, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_BUY_ENGOLFO" + TimeToString(candles[0].time), clrWhite);
+         config.candleCandidate = candles[0];
+         config.lastCandleCandidate = candles[1];  
+         config.candleCandidateTendency = BUY;
+         config.candleCandidateCounter = MIN_COUNT_CANDIDATE_CANDLE;
+      } else  if(initialTendency == 1 && c2Bull && c1Bear && candles[0].close < candles[1].open){
+         drawVerticalLine(candles[0].time, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL_ENGOLFO" + TimeToString(candles[0].time), clrRed);
+         config.candleCandidate = candles[0];
+         config.lastCandleCandidate = candles[1]; 
+         config.candleCandidateTendency = SELL;
+         config.candleCandidateCounter = MIN_COUNT_CANDIDATE_CANDLE;
+      }
+   } else {
+    if (config.candleCandidateCounter <= 4) {
+         double proporcaoTempo = 1.2;
+         MaximosMinimos maxMin = getMinOrMax(1, MIN_COUNT_CANDIDATE_CANDLE);
+         double newVolume = NormalizeVolume(ENABLE_TIMEFRAME_MULTIPLIER ? VOLUME * config.multiplier : VOLUME);
+         bool diff = DISABLED_ADX_SIZE_VALIDATIONS ||  MathAbs(VALUE_ADX[1] - VALUE_ADX[2])  > 10;
+         
+         if(!diff) {
+            return;
+         }
+         
+         if(IsBullish(config.candleCandidate) && candles[0].close < maxMin.low 
+            && VALUE_MOVING_AVERAGE[0] > candles[0].close && VALUE_MOVING_AVERAGE[1] > candles[0].close && VALUE_MOVING_AVERAGE[2] > candles[0].close 
+            && VALUE_ADX[1] < VALUE_ADX[2]){
+            int remainingSeconds = calcularCandleTime();
+            if(remainingSeconds > config.tfSeconds / proporcaoTempo) {
+               return ;
+            }
+            double ask = NormalizeDouble(SymbolInfoDouble(_Symbol, SYMBOL_ASK), _Digits);
+            double sl = calcPoints(maxMin.high, candles[0].close);
+            double tp = sl * PROPORTION_TAKE_STOP;
+      
+            if(candles[0].spread > sl)
+               return;
+      
+            trade.SetExpertMagicNumber(config.magicNumber);
+            bool ok = toSell(ask, newVolume, sl, tp, "SELL_ENGOLFO_" + config.label);
+            if(ok) {
+               config.signalTendencia = SELL;
+               config.candleCandidateCounter = 0;
+               config.candleCandidateTendency = NONE;
+               countOrders++;
+               Print("Sell executado com sucesso em ", config.label);
+            }
+            
+       } else if(IsBullish(config.candleCandidate) && IsBullish(candles[0]) && candles[0].close > config.candleCandidate.close && candles[0].close < config.lastCandleCandidate.close
+            && VALUE_MOVING_AVERAGE[0] < candles[0].close && VALUE_MOVING_AVERAGE[1] < candles[0].close && VALUE_MOVING_AVERAGE[2] < candles[0].close 
+            && VALUE_ADX[1] < VALUE_ADX[2]){
+            int remainingSeconds = calcularCandleTime();
+            if(remainingSeconds > config.tfSeconds / proporcaoTempo) {
+               return ;
+            }
+            double bid = NormalizeDouble(SymbolInfoDouble(_Symbol, SYMBOL_BID), _Digits);
+            double sl = calcPoints(maxMin.low, candles[0].close);
+            double tp = sl * PROPORTION_TAKE_STOP;
+      
+            if(candles[0].spread > sl)
+               return;
+      
+            trade.SetExpertMagicNumber(config.magicNumber);
+            bool ok = toBuy(bid, newVolume, sl, tp, "BUY_ENGOLFO_REVERSION_" + config.label);
+            if(ok) {
+               config.signalTendencia = BUY;
+               config.candleCandidateCounter = 0;
+               config.candleCandidateTendency = NONE;
+               countOrders++;
+               Print("BUY executado com sucesso em ", config.label);
+            }
+            
+       } else if(IsBearish(config.candleCandidate) && IsBearish(candles[0]) && candles[0].close < config.candleCandidate.close && candles[0].close > config.lastCandleCandidate.close
+            && VALUE_MOVING_AVERAGE[0] > candles[0].close && VALUE_MOVING_AVERAGE[1] > candles[0].close && VALUE_MOVING_AVERAGE[2] > candles[0].close 
+            && VALUE_ADX[1] > VALUE_ADX[2]){
+            int remainingSeconds = calcularCandleTime();
+            if(remainingSeconds > config.tfSeconds / proporcaoTempo) {
+               return ;
+            }
+            double ask = NormalizeDouble(SymbolInfoDouble(_Symbol, SYMBOL_ASK), _Digits);
+            double sl = calcPoints(maxMin.high, candles[0].close);
+            double tp = sl * PROPORTION_TAKE_STOP;
+      
+            if(candles[0].spread > sl)
+               return;
+      
+            trade.SetExpertMagicNumber(config.magicNumber);
+            bool ok = toSell(ask, newVolume, sl, tp, "SELL_ENGOLFO_" + config.label);
+            if(ok) {
+               config.signalTendencia = SELL;
+               config.candleCandidateCounter = 0;
+               config.candleCandidateTendency = NONE;
+               countOrders++;
+               Print("Sell executado com sucesso em ", config.label);
+            }
+            
+       } else if(IsBearish(config.candleCandidate) && candles[0].close > maxMin.high
+            && VALUE_MOVING_AVERAGE[0] < candles[0].close && VALUE_MOVING_AVERAGE[1] < candles[0].close && VALUE_MOVING_AVERAGE[2] < candles[0].close 
+            && VALUE_ADX[1] > VALUE_ADX[2]){
+            int remainingSeconds = calcularCandleTime();
+            if(remainingSeconds > config.tfSeconds / proporcaoTempo) {
+               return ;
+            }
+            double bid = NormalizeDouble(SymbolInfoDouble(_Symbol, SYMBOL_BID), _Digits);
+            double sl = calcPoints(maxMin.low, candles[0].close);
+            double tp = sl * PROPORTION_TAKE_STOP;
+      
+            if(candles[0].spread > sl)
+               return;
+      
+            trade.SetExpertMagicNumber(config.magicNumber);
+            bool ok = toBuy(bid, newVolume, sl, tp, "BUY_ENGOLFO_" + config.label);
+            if(ok) {
+               config.signalTendencia = BUY;
+               config.candleCandidateCounter = 0;
+               config.candleCandidateTendency = NONE;
+               countOrders++;
+               Print("BUY executado com sucesso em ", config.label);
+            }
+         }
+      }
+   }
+   
+}
 
 //+------------------------------------------------------------------+
 
 void VerifyTendency(TimeframeConfig &config) {
    int index = 1;
-   int initialTendency = getCandleTendecy(index, QTD_CANDLES, 3);
+   int min = MathRound((double)QTD_CANDLES / 2.0);
+   int initialTendency = getCandleTendecy(index, QTD_CANDLES, min, false, PERCENTUAL_ACCEPTABLE_CANDLE_BODY);
    datetime actualTime = candles[index].time;
    double precoAtual = candles[0].close;
    double minAnterior = candles[1].open;
    double newVolume = NormalizeVolume(ENABLE_TIMEFRAME_MULTIPLIER ? VOLUME * config.multiplier : VOLUME);
-   bool isMercadoNaoLateralizado = DISABLED_LATERAL_MARKET_VALIDATIONS || !MercadoLateral();
+ //  bool isMercadoNaoLateralizado = DISABLED_LATERAL_MARKET_VALIDATIONS || !MercadoLateral();
    bool diff = DISABLED_ADX_SIZE_VALIDATIONS ||  MathAbs(VALUE_ADX[1] - VALUE_ADX[2])  > 10;
-        
-   if(initialTendency == -1 && isMercadoNaoLateralizado && diff){
+   datetime expiration = TimeCurrent() + config.tfSeconds * 3;
+   double profit = AccountInfoDouble(ACCOUNT_PROFIT);
+   
+   if(initialTendency == -1  && diff){
+      drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL_CANDIDATO" + TimeToString(expiration), clrRed);
       if( VALUE_MOVING_AVERAGE[0] < candles[4].close && VALUE_MOVING_AVERAGE[0] < candles[3].close && VALUE_MOVING_AVERAGE[0] < candles[2].close 
          && VALUE_MOVING_AVERAGE[0] > precoAtual && VALUE_MOVING_AVERAGE[1] > precoAtual && VALUE_MOVING_AVERAGE[2] > precoAtual
          && VALUE_ADX[1] < VALUE_ADX[2]) {
@@ -714,12 +867,17 @@ void VerifyTendency(TimeframeConfig &config) {
          MaximosMinimos maxMin = getMinOrMax(1, QTD_CANDLES);
          double sl = maxMin.high;
          double diff = calcPoints(precoAtual, sl);
+         if (diff < 300) {
+            maxMin = getMinOrMax(1, QTD_CANDLES + 2);
+            sl = maxMin.low;
+            diff = calcPoints(precoAtual, sl);
+         }
          double tp = calcPrice(precoAtual, -diff * 2);
          
          trade.SetExpertMagicNumber(config.magicNumber);
-         datetime expiration = TimeCurrent() + config.tfSeconds * 3;
          bool ok = trade.Sell(newVolume, _Symbol, precoAtual, sl, tp, "SELL_TENDENCY_TRUNFO_" + config.label);
          if(ok){
+            config.waitNewCandle = true;
             config.maxRobots = NUMBER_MAX_ROBOT_BY_TIMEFRAME;
             drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL_TRUNFO" + TimeToString(expiration), clrRed);
             Print("BUY TENDENCY executado com sucesso em ", config.label);
@@ -735,6 +893,11 @@ void VerifyTendency(TimeframeConfig &config) {
          MaximosMinimos maxMin = getMinOrMax(1, QTD_CANDLES);
          double sl = maxMin.high;
          double diff = calcPoints(precoAtual, sl);
+         if (diff < 300) {
+            maxMin = getMinOrMax(1, QTD_CANDLES + 2);
+            sl = maxMin.low;
+            diff = calcPoints(precoAtual, sl);
+         }
          double tp = calcPrice(precoAtual, -diff);
          
          double pointsDiffAverage = calcPoints(VALUE_MOVING_AVERAGE[0], precoAtual); 
@@ -745,9 +908,7 @@ void VerifyTendency(TimeframeConfig &config) {
          }
          
          trade.SetExpertMagicNumber(config.magicNumber);
-         datetime expiration = TimeCurrent() + config.tfSeconds * 3;
          if (!DISABLED_SECONDARY_VALIDATIONS && IsTrendSaturated(SELL, precoAtual, maxMin)) {
-            int initialTendency = getCandleTendecy(index, QTD_CANDLES, 3);
             Print("Segunda barreira");
             //double newPrice = calcPrice(precoAtual, diff * 0.3);
           //  trade.SellLimit(newVolume, newPrice, _Symbol, sl, tp, ORDER_TIME_SPECIFIED, expiration, "SELL_TENDENCY_SATURED_" + config.label);
@@ -756,12 +917,14 @@ void VerifyTendency(TimeframeConfig &config) {
 
          bool ok = trade.Sell(newVolume, _Symbol, precoAtual, sl, tp, "SELL_TENDENCY_" + config.label);
          if(ok){
+            config.waitNewCandle = true;
             config.maxRobots = NUMBER_MAX_ROBOT_BY_TIMEFRAME;
             drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL" + TimeToString(expiration), clrBlueViolet);
             Print("SELL TENDENCY executado com sucesso em ", config.label);
          }
       }
-   } else  if(initialTendency == 1 && isMercadoNaoLateralizado && diff ){
+   } else  if(initialTendency == 1 && diff ){
+      drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_BUY_CANDIDATO" + TimeToString(expiration), clrWhite);
       if( VALUE_MOVING_AVERAGE[0] > candles[4].close && VALUE_MOVING_AVERAGE[0] > candles[3].close && VALUE_MOVING_AVERAGE[0] > candles[2].close 
          && VALUE_MOVING_AVERAGE[0] < precoAtual && VALUE_MOVING_AVERAGE[1] < precoAtual && VALUE_MOVING_AVERAGE[2] < precoAtual
          && VALUE_ADX[1] > VALUE_ADX[2]) {
@@ -770,12 +933,17 @@ void VerifyTendency(TimeframeConfig &config) {
          MaximosMinimos maxMin = getMinOrMax(1, QTD_CANDLES);
          double sl = maxMin.low;
          double diff = calcPoints(precoAtual, sl);
+         if (diff < 300) {
+            maxMin = getMinOrMax(1, QTD_CANDLES + 2);
+            sl = maxMin.low;
+            diff = calcPoints(precoAtual, sl);
+         }
          double tp = calcPrice(precoAtual, diff * 2);
          
          trade.SetExpertMagicNumber(config.magicNumber);
-         datetime expiration = TimeCurrent() + config.tfSeconds * 3;
          bool ok = trade.Buy(newVolume, _Symbol, precoAtual, sl, tp, "BUY_TENDENCY_TRUNFO" + config.label);
          if(ok){
+            config.waitNewCandle = true;
             config.maxRobots = NUMBER_MAX_ROBOT_BY_TIMEFRAME;
             drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_BUY_TRUNFO" + TimeToString(expiration), clrGreen);
             Print("BUY TENDENCY executado com sucesso em ", config.label);
@@ -791,8 +959,13 @@ void VerifyTendency(TimeframeConfig &config) {
          MaximosMinimos maxMin = getMinOrMax(1, QTD_CANDLES);
          double sl = maxMin.low;
          double diff = calcPoints(precoAtual, sl);
-         double tp = calcPrice(precoAtual, diff);
+         if (diff < 300) {
+            maxMin = getMinOrMax(1, QTD_CANDLES + 2);
+            sl = maxMin.low;
+            diff = calcPoints(precoAtual, sl);
+         }
          
+         double tp = calcPrice(precoAtual, diff);
          double pointsDiffAverage = calcPoints(VALUE_MOVING_AVERAGE[0], precoAtual); 
          double pointsDiffSl = calcPoints(precoAtual, sl); 
          if(!DISABLED_SECONDARY_VALIDATIONS && pointsDiffAverage < pointsDiffSl) {
@@ -802,7 +975,6 @@ void VerifyTendency(TimeframeConfig &config) {
          }
          
          trade.SetExpertMagicNumber(config.magicNumber);
-         datetime expiration = TimeCurrent() + config.tfSeconds * 3;
          if (!DISABLED_SECONDARY_VALIDATIONS && IsTrendSaturated(BUY, precoAtual, maxMin)) {
             Print("Segunda barreira");
           //  trade.Buy(newVolume, _Symbol, precoAtual, sl, tp, "BUY_TENDENCY_SATURED_" + config.label);
@@ -813,6 +985,7 @@ void VerifyTendency(TimeframeConfig &config) {
          
          bool ok = trade.Buy(newVolume, _Symbol, precoAtual, sl, tp, "BUY_TENDENCY_" + config.label);
          if(ok){
+            config.waitNewCandle = true;
             config.maxRobots = NUMBER_MAX_ROBOT_BY_TIMEFRAME;
             drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_BUY" + TimeToString(expiration), clrYellow);
             Print("BUY TENDENCY executado com sucesso em ", config.label);
@@ -839,6 +1012,7 @@ void drawVerticalLine(datetime time, string nameLine, color indColor){
    ObjectCreate(ChartID(),nameLine,OBJ_VLINE,0,time,0);
    ObjectSetInteger(0,nameLine,OBJPROP_COLOR,indColor);
    ObjectSetInteger(0,nameLine,OBJPROP_WIDTH,1);
+   ObjectMove(ChartID(),nameLine,0,time, 0);
 }
 
 void drawHorizontalLine(double price, datetime time, string nameLine, color indColor){
@@ -942,19 +1116,29 @@ double getBodyOrWick(MqlRates &candle, bool body) {
 //+------------------------------------------------------------------+
 
 //+------------------------------------------------------------------+
-int getCandleTendecy(int start, int end, int limit) {
+int getCandleTendecy(int start, int end, int limit, bool ignoreType, double bodySize) {
    int bearishCount = 0;
    int bullishCount = 0;
    int low = 0;
    int high = 0;
-
    for(int i = start; i < end; i++) {
+      double body = getBodyOrWick(candles[i], true);
+      double wick = getBodyOrWick(candles[i], false);
+      
       if(i+1 < end ) {
-         if(candles[i+1].open > candles[i].close && candles[i+1].high > candles[i].high && IsBearish(candles[i+1]) && IsBearish(candles[i])) {
+         if(candles[i+1].open > candles[i].close 
+            && body > wick * bodySize  / 100
+            && candles[i+1].high > candles[i].high 
+            && (ignoreType || (IsBearish(candles[i+1]) && IsBearish(candles[i])))
+            ) {
             bearishCount++;
          }
 
-         if(candles[i+1].open < candles[i].close && candles[i+1].low < candles[i].low && IsBullish(candles[i+1]) && IsBullish(candles[i])) {
+         if(candles[i+1].open < candles[i].close 
+            && body > wick * bodySize / 100
+            && candles[i+1].low < candles[i].low 
+            && (ignoreType || (IsBullish(candles[i+1]) && IsBullish(candles[i])))
+           ) {
             bullishCount++;
          }
       }

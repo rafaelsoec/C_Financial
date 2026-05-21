@@ -690,13 +690,20 @@ bool CheckDailyMaxLoss(double percentLossPerDay, string log_prefix = "") {
 
 bool IsMarketOpenNow(int minutos = 0){
    datetime agora = TimeLocal();
-
+      
    // Converte para estrutura
    MqlDateTime tempo;
    TimeToStruct(agora, tempo);
 
    int hora = tempo.hour;
    int minuto = tempo.min;
+
+   // 0 = Domingo
+   // 6 = Sábado
+   if((tempo.day_of_week == 0 && hora <= 20) || tempo.day_of_week == 6) {
+      return false;
+   }
+      
    if(hora >= 17 && minuto  >= 30 && hora <= 19){   
       return false;
    }

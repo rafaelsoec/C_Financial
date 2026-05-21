@@ -1116,11 +1116,11 @@ void VerifyTendency(TimeframeConfig &config) {
          double sl = maxMin.high;
          double diff = NormalizeDouble(calcPoints(precoAtual, sl), 2);
          
-         if (diff < 300) {
+        /* if (diff < 300) {
             maxMin = getMinOrMax(1, QTD_CANDLES + 2);
             sl = maxMin.low;
             diff = NormalizeDouble(calcPoints(precoAtual, sl), 2);
-         }
+         }*/
          double tp = NormalizeDouble(calcPrice(precoAtual, -diff * 2), 2);
          
          trade.SetExpertMagicNumber(config.magicNumber);
@@ -1144,11 +1144,11 @@ void VerifyTendency(TimeframeConfig &config) {
          double sl = maxMin.high;
          double diff = NormalizeDouble(calcPoints(precoAtual, sl), 2);
          
-         if (diff < 300) {
+        /*   if (diff < 300) {
             maxMin = getMinOrMax(1, QTD_CANDLES + 2);
             sl = maxMin.low;
             diff = NormalizeDouble(calcPoints(precoAtual, sl), 2);
-         }
+         } */
          double tp = NormalizeDouble(calcPrice(precoAtual, -diff), 2);
          
          double pointsDiffAverage = calcPoints(VALUE_MOVING_AVERAGE[0], precoAtual); 
@@ -1188,11 +1188,11 @@ void VerifyTendency(TimeframeConfig &config) {
          double sl = maxMin.low;
          double diff = NormalizeDouble(calcPoints(precoAtual, sl), 2);
          
-         if (diff < 300) {
+          /* if (diff < 300) {
             maxMin = getMinOrMax(1, QTD_CANDLES + 2);
             sl = maxMin.low;
             diff = NormalizeDouble(calcPoints(precoAtual, sl), 2);
-         }
+         } /*/
          double tp = NormalizeDouble(calcPrice(precoAtual, diff * 2), 2);
          
          trade.SetExpertMagicNumber(config.magicNumber);
@@ -1216,11 +1216,11 @@ void VerifyTendency(TimeframeConfig &config) {
          double sl = maxMin.low;
          double diff = NormalizeDouble(calcPoints(precoAtual, sl), 2);
          
-         if (diff < 300) {
+        /* if (diff < 300) {
             maxMin = getMinOrMax(1, QTD_CANDLES + 2);
             sl = maxMin.low;
             diff = NormalizeDouble(calcPoints(precoAtual, sl), 2);
-         }
+         }*/
          double tp = NormalizeDouble(calcPrice(precoAtual, diff), 2);
          
          double pointsDiffAverage = calcPoints(VALUE_MOVING_AVERAGE[0], precoAtual); 

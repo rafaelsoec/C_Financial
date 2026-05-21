@@ -547,9 +547,7 @@ void MoveStopPorPontos()
          if(type == POSITION_TYPE_BUY ) {
            BUY_COUNT--;
             if(ENABLE_MARTINGALLE && totalPeriodosMartingalle > 2 && !waitNewCandleMartingalle) {
-               double diff = calcPoints(currentPrice, tpAtual);
-               double newValues = calcPrice(currentPrice, -diff);
-               bool ok = trade.Buy(VOLUME, _Symbol, currentPrice, newValues, tpAtual, "BUY_MARTINGALLE_ROBOTS");
+               bool ok = trade.Buy(VOLUME, _Symbol, currentPrice, slAtual, tpAtual, "BUY_MARTINGALLE_ROBOTS");
                if(ok) {
                   waitNewCandleMartingalle = true;
                }
@@ -557,10 +555,7 @@ void MoveStopPorPontos()
          } else {
            SELL_COUNT--;
             if(ENABLE_MARTINGALLE && totalPeriodosMartingalle > 2 && !waitNewCandleMartingalle) {
-               double diff = calcPoints(currentPrice, tpAtual);
-               double newValues = calcPrice(currentPrice, diff);
-               
-               bool ok = trade.Sell(VOLUME, _Symbol, currentPrice, newValues, tpAtual, "SELL_MARTINGALLE_ROBOTS");
+               bool ok = trade.Sell(VOLUME, _Symbol, currentPrice, slAtual, tpAtual, "SELL_MARTINGALLE_ROBOTS");
                if(ok) {
                   waitNewCandleMartingalle = true;
                }

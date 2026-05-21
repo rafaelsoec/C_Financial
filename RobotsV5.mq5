@@ -359,7 +359,9 @@ void OnTick() {
       
       
       if(ENABLE_ENGOLFO) {
-         VerifyEngolfo(configs[i]);
+         if (IsTrendNotExtrapolated(candles[0].close)) {
+            VerifyEngolfo(configs[i]);
+         }    
       } 
          
       if(IsNewBar(configs[i])) {

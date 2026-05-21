@@ -282,7 +282,7 @@ void OnTick() {
       BALANCE = AccountInfoDouble(ACCOUNT_BALANCE);
    }
    
-   if(PositionsTotal() > NUMBER_MAX_ROBOT * NUMBER_MAX_ROBOT_BY_TIMEFRAME) {
+   if(PositionsTotal() > NUMBER_MAX_ROBOT) {
       return;
    }
    

@@ -89,11 +89,12 @@ struct MaximosMinimos
 
 
 input double VOLUME = 0.01;
+input int QTD_CANDLES = 6;
+input int MIN_CANDLES_IN_TREND = 3;
 input ATR_TYPE ATR_MINIMUM = ATR_4;
 input double LOSS_PER_DAY = 1000;
 input MOVE_STOP_TYPE MOVE_STOP = MOVE_STOP_30;
 input double PERCENTUAL_ACCEPTABLE_CANDLE_BODY = 70;
-input int QTD_CANDLES = 6;
  input bool ENABLE_ENGOLFO = false;
  input bool ENABLE_MARTINGALLE = true;
  input bool ENABLE_MULTI_ROBOTS_IN_PROFIT = true;
@@ -976,7 +977,8 @@ void VerifyEngolfo(TimeframeConfig &config) {
    
    int initialTendency = 0, finalTendency = 0;
    if(config.candleCandidateCounter <= 0) {
-      initialTendency = getCandleTendecy(1, QTD_CANDLES, 3, true, 0);  
+      //int min = MathRound((double)QTD_CANDLES / 2.0); 
+      initialTendency = getCandleTendecy(1, QTD_CANDLES, MIN_CANDLES_IN_TREND, true, 0);  
       if (initialTendency == 1) {
          config.actualTendency = BUY;
       } else if (initialTendency == -1) {
@@ -1072,8 +1074,8 @@ void VerifyEngolfo(TimeframeConfig &config) {
 void VerifyTendency(TimeframeConfig &config) {
    int index = 1;
       
-   int min = MathRound((double)QTD_CANDLES / 2.0);
-   int initialTendency = getCandleTendecy(index, QTD_CANDLES, min, false, PERCENTUAL_ACCEPTABLE_CANDLE_BODY);
+   //int min = MathRound((double)QTD_CANDLES / 2.0);
+   int initialTendency = getCandleTendecy(index, QTD_CANDLES, MIN_CANDLES_IN_TREND, false, PERCENTUAL_ACCEPTABLE_CANDLE_BODY);
    datetime actualTime = candles[index].time;
    double actualBody = getBodyOrWick(candles[0], true);
    double precoAtual = candles[0].close;

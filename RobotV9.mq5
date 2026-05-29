@@ -93,8 +93,9 @@ input int QTD_CANDLES = 6;
 input int MIN_CANDLES_IN_TREND = 3;
 input ATR_TYPE ATR_MINIMUM = ATR_3_5;
 input double LOSS_PER_DAY = 500;
+input double MOVE_STOP_PROTECTION_PERCENTUAL = 60;
 input MOVE_STOP_TYPE MOVE_STOP = MOVE_STOP_30;
-input double PERCENTUAL_ACCEPTABLE_CANDLE_BODY = 70;
+input double ACCEPTABLE_CANDLE_BODY_PERCENTUAL = 70;
 input double PROPORTION_TAKE_STOP = 1.5;
  input bool ENABLE_TENDENCY = true;
  input bool ENABLE_ENGOLFO = true;
@@ -546,11 +547,12 @@ void MoveStopPorPontos()
             totalPeriodos++;
          }
          
+         double percentProtenction = 0.1;
          if(type == POSITION_TYPE_BUY ) {
             BUY_COUNT++;
             if (entry > slAtual) {
-               if (pontosEntrada > pontosMove * 0.5) {
-                  novoSL = entry + (pontosProtecao * 0.5 * point);
+               if (pontosEntrada > pontosMove * MOVE_STOP_PROTECTION_PERCENTUAL / 100) {
+                  novoSL = entry + (pontosProtecao * percentProtenction * point);
                   if(trade.PositionModify(ticket, novoSL, tpAtual))
                      Print("Stop movido - Protecao - ", entry, " - BUY");
                } 
@@ -575,8 +577,8 @@ void MoveStopPorPontos()
          if(type == POSITION_TYPE_SELL) {
             SELL_COUNT++;
             if (entry < slAtual) {
-               if (pontosEntrada > pontosMove * 0.5) {
-                  novoSL = entry - (pontosProtecao * 0.5 * point);
+               if (pontosEntrada > pontosMove * MOVE_STOP_PROTECTION_PERCENTUAL / 100) {
+                  novoSL = entry - (pontosProtecao  *  percentProtenction * point);
                   if(trade.PositionModify(ticket, novoSL, tpAtual))
                      Print("Stop movido - Protecao - ", entry, " - SELL");
                }
@@ -608,20 +610,20 @@ void MoveStopPorPontos()
          
          if(type == POSITION_TYPE_BUY ) {
            BUY_COUNT--;
-            if(ENABLE_MARTINGALLE && totalPeriodosMartingalle > 2 && !waitNewCandleMartingalle) {
+            /*if(ENABLE_MARTINGALLE && totalPeriodosMartingalle > 2 && !waitNewCandleMartingalle) {
                bool ok = trade.Buy(VOLUME, _Symbol, currentPrice, slAtual, tpAtual, "BUY_MARTINGALLE_ROBOTS");
                if(ok) {
                   waitNewCandleMartingalle = true;
                }
-            }
+            }*/
          } else {
            SELL_COUNT--;
-            if(ENABLE_MARTINGALLE && totalPeriodosMartingalle > 2 && !waitNewCandleMartingalle) {
+           /* if(ENABLE_MARTINGALLE && totalPeriodosMartingalle > 2 && !waitNewCandleMartingalle) {
                bool ok = trade.Sell(VOLUME, _Symbol, currentPrice, slAtual, tpAtual, "SELL_MARTINGALLE_ROBOTS");
                if(ok) {
                   waitNewCandleMartingalle = true;
                }
-            }
+            }*/
          }
       }
       
@@ -1010,13 +1012,13 @@ void VerifyEngolfo(TimeframeConfig &config) {
       }
       
       if(initialTendency == -1 && c2Bear && c1Bull && candles[0].close > candles[1].open){
-         drawVerticalLine(candles[0].time, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_BUY_ENGOLFO" + TimeToString(candles[0].time), clrWhite);
+         drawVerticalLine(candles[0].time, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_BUY_ENGOLFO" + FormatDateToString(candles[0].time), clrWhite);
          config.candleCandidate = candles[0];
          config.lastCandleCandidate = candles[1];  
          config.candleCandidateTendency = BUY;
          config.candleCandidateCounter = MIN_COUNT_CANDIDATE_CANDLE;
       } else  if(initialTendency == 1 && c2Bull && c1Bear && candles[0].close < candles[1].open){
-         drawVerticalLine(candles[0].time, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL_ENGOLFO" + TimeToString(candles[0].time), clrRed);
+         drawVerticalLine(candles[0].time, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL_ENGOLFO" + FormatDateToString(candles[0].time), clrRed);
          config.candleCandidate = candles[0];
          config.lastCandleCandidate = candles[1]; 
          config.candleCandidateTendency = SELL;
@@ -1052,7 +1054,8 @@ void VerifyEngolfo(TimeframeConfig &config) {
       
             trade.SetExpertMagicNumber(config.magicNumber);
             if (!DISABLED_NEGOTIATIONS) {
-               bool ok = trade.Sell(NormalizeVolume(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits)), _Symbol, ask, sl, tp, "SELL_ENGOLFO_" + config.label);
+               newVolume = NormalizeVolume(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits));
+               bool ok = trade.Sell(newVolume, _Symbol, ask, sl, tp, "SELL_ENGOLFO_" + config.label);
                if(ok) {
                   config.signalTendencia = SELL;
                   config.candleCandidateCounter = 0;
@@ -1079,7 +1082,8 @@ void VerifyEngolfo(TimeframeConfig &config) {
       
             trade.SetExpertMagicNumber(config.magicNumber);
             if (!DISABLED_NEGOTIATIONS) {
-               bool ok = trade.Buy(NormalizeVolume(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits)), _Symbol, bid, sl, tp, "BUY_ENGOLFO_" + config.label);
+               newVolume = NormalizeVolume(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits));
+               bool ok = trade.Buy(newVolume, _Symbol, bid, sl, tp, "BUY_ENGOLFO_" + config.label);
                if(ok) {
                   config.signalTendencia = BUY;
                   config.candleCandidateCounter = 0;
@@ -1100,7 +1104,7 @@ void VerifyTendency(TimeframeConfig &config) {
    int index = 1;
       
    //int min = MathRound((double)QTD_CANDLES / 2.0);
-   int initialTendency = getCandleTendecy(index, QTD_CANDLES, MIN_CANDLES_IN_TREND, false, PERCENTUAL_ACCEPTABLE_CANDLE_BODY);
+   int initialTendency = getCandleTendecy(index, QTD_CANDLES, MIN_CANDLES_IN_TREND, false, ACCEPTABLE_CANDLE_BODY_PERCENTUAL);
    datetime actualTime = candles[index].time;
    double actualBody = getBodyOrWick(candles[0], true);
    double precoAtual = candles[0].close;
@@ -1120,7 +1124,7 @@ void VerifyTendency(TimeframeConfig &config) {
    }
    
    if(initialTendency == -1  && diff){
-      drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL_CANDIDATO" + TimeToString(expiration), clrRed);
+      drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL_CANDIDATO" +  FormatDateToString(candles[0].time), clrRed);
       double ultimosCorposCompra = getCandleBodies(index, QTD_CANDLES, BUY);
       //IsBullish(candles[1]) && funciona
       if (config.average50[0] > precoAtual && config.average50[1] > precoAtual && config.average50[2] > precoAtual 
@@ -1155,17 +1159,19 @@ void VerifyTendency(TimeframeConfig &config) {
 
          if (!DISABLED_NEGOTIATIONS) {
             double tendenciaExtrapolada = IsTrendSaturated(config, precoAtual);
-            bool ok = trade.Sell(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits), _Symbol, precoAtual, sl, tp, "SELL_TENDENCY_" + config.label);
+            newVolume = NormalizeVolume(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits));
+            ExecuteMartingale(config, SELL, candles[1], precoAtual, newVolume, sl, tp);
+            bool ok = trade.Sell(newVolume, _Symbol, precoAtual, sl, tp, "SELL_TENDENCY_" + config.label);
             if(ok){
                config.waitNewCandle = true;
                config.maxRobots = NUMBER_MAX_ROBOT_BY_TIMEFRAME;
-               drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL" + TimeToString(expiration), clrBlueViolet);
+               drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL" + FormatDateToString(candles[0].time), clrBlueViolet);
                Print("SELL TENDENCY executado com sucesso em ", config.label);
             }
          }
       }
    } else  if(initialTendency == 1 && diff ){
-      drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_BUY_CANDIDATO" + TimeToString(expiration), clrWhite);
+      drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_BUY_CANDIDATO" +  FormatDateToString(candles[0].time), clrWhite);
       double ultimosCorposVenda = getCandleBodies(index, QTD_CANDLES, SELL);
       //IsBearish(candles[1]) && funciona
       if ( config.average50[0] < precoAtual && config.average50[1] < precoAtual && config.average50[2] < precoAtual 
@@ -1202,14 +1208,55 @@ void VerifyTendency(TimeframeConfig &config) {
          
          if (!DISABLED_NEGOTIATIONS ) {
             double tendenciaExtrapolada = IsTrendSaturated(config, precoAtual);
-            bool ok = trade.Buy(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits), _Symbol, precoAtual, sl, tp, "BUY_TENDENCY_" + config.label);
+            newVolume = NormalizeVolume(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits));
+            ExecuteMartingale(config, BUY, candles[1], precoAtual, newVolume, sl, tp);
+            bool ok = trade.Buy(newVolume, _Symbol, precoAtual, sl, tp, "BUY_TENDENCY_" + config.label);
             if(ok){
                config.waitNewCandle = true;
                config.maxRobots = NUMBER_MAX_ROBOT_BY_TIMEFRAME;
-               drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_BUY" + TimeToString(expiration), clrYellow);
+               drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_BUY" +  FormatDateToString(candles[0].time), clrYellow);
                Print("BUY TENDENCY executado com sucesso em ", config.label);
             }
          }
+      }
+   }
+}
+
+void ExecuteMartingale(TimeframeConfig &config, TYPE_NEGOCIATION type, MqlRates &candle, double precoAtual, double volume, double sl, double tp) {
+   if (ENABLE_MARTINGALLE) {
+      double percent = 0.40;
+      while (percent > 0) {
+         double body30Perc = (calcPoints(candle.close, candle.open) * percent);
+         if (body30Perc > (config.atr[0] / _Point * percent)) {
+            double limitPrice = calcPrice(precoAtual, body30Perc);
+            datetime expiration = TimeCurrent() + (config.tfSeconds / 2);
+           // sl = calcPrice(sl, body30Perc);
+            
+            if (type == BUY) {
+               trade.BuyLimit(
+                  NormalizeVolume(volume), // volume
+                  NormalizeDouble(limitPrice, _Digits),                 // preço da ordem
+                  _Symbol,
+                  NormalizeDouble(sl, _Digits),
+                  NormalizeDouble(tp, _Digits),
+                  ORDER_TIME_SPECIFIED,
+                  expiration,
+                  "BUY_TENDENCY_MARTINGALE_" + config.label
+               );
+            } else if (type == SELL) {
+               trade.SellLimit(
+                  NormalizeVolume(volume), // volume
+                  NormalizeDouble(limitPrice, _Digits),                 // preço da ordem
+                  _Symbol,
+                  NormalizeDouble(sl, _Digits),
+                  NormalizeDouble(tp, _Digits),
+                  ORDER_TIME_SPECIFIED,
+                  expiration,
+                  "SELL_TENDENCY_MARTINGALE_" + config.label
+               );
+            }
+         }
+         percent -= 0.10;
       }
    }
 }
@@ -1519,6 +1566,19 @@ void generateButtons(){
      
 }
 
+string FormatDateToString(datetime timeValue){
+   MqlDateTime dt;
+   TimeToStruct(timeValue, dt);
+
+   return StringFormat(
+      "%02d/%02d/%04d %02d:%02d",
+      dt.day,
+      dt.mon,
+      dt.year,
+      dt.hour,
+      dt.min
+   );
+}
 
 void closeAllPositionsByType(ENUM_POSITION_TYPE type, int qtd = 0){
    int pos = PositionsTotal()-1;

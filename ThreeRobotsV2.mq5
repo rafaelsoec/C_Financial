@@ -118,8 +118,9 @@ input double PROPORTION_TAKE_STOP = 2;
  input bool ENABLE_MARTINGALLE = true;
  input bool ENABLE_MULTI_ROBOTS_IN_PROFIT = true;
 input bool ENABLE_TIMEFRAME_MULTIPLIER = true;
+input bool ENABLE_CLOSE_IN_LOSS = false;
 input bool IGNORE_MAGIC_NUMBER = false;
-input int NUMBER_MAX_ROBOT = 6;
+input int NUMBER_MAX_ROBOT = 5;
 input bool IS_TEST = false;
  bool DISABLED_NEGOTIATIONS = false;
  bool DISABLED_SECONDARY_VALIDATIONS = true;
@@ -494,8 +495,8 @@ void MoveStopPorPontos()
    double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    int totalPeriodos = 0, totalPeriodosMartingalle = 0, countLoss = 0;
    int total = PositionsTotal();
-   double profitLoss = 0;
-   double positionsInLoss[];
+   double profitLoss = 0, profitWins = 0;
+   bool positionsInLoss[];
    
    ArrayResize(positionsInLoss, total);
    for(int i = 0; i < total; i++) {
@@ -596,17 +597,22 @@ void MoveStopPorPontos()
                }
             }
          }
+        positionsInLoss[i] = false;
+        profitWins += MathAbs(profit);
       } else if(profit < 0) {
-        positionsInLoss[countLoss] = i;
+        positionsInLoss[i] = true;
         profitLoss += MathAbs(profit);
-        countLoss++;
       }
       
    }
      
-    if (profitLoss >= LOSS_PER_DAY / 2) {
-        for(int i = 0; i < ArraySize(positionsInLoss); i++) {
-            closeBuyOrSell(i, MAGIC_NUMBER);
+    if (ENABLE_CLOSE_IN_LOSS && profitLoss >= LOSS_PER_DAY && (profitWins - profitLoss) < 0) {
+        for(int i = 0; i < total; i++) {
+            if (positionsInLoss[i]) {
+               closeBuyOrSell(i, MAGIC_NUMBER);
+            } else {
+               moveStopToZeroPlusPoint(i, candles[0].spread);
+            }
         }
     }
 }

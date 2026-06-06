@@ -77,7 +77,7 @@ struct TimeframeConfig
    bool enableTendency;
    bool enableInversion;
    ulong magicNumber;
-   double atr[3];
+   double atr[15];
    double movingAverage[15];
    double adx[15];
    double cci[15];
@@ -144,7 +144,7 @@ bool countCycles = false, waitNewCandleMultRobot = false, waitNewCandleMartingal
 int MIN_COUNT_CANDIDATE_CANDLE = 5, BUY_COUNT = 0, SELL_COUNT = 0;
 ENUM_TIMEFRAMES tfs[] = { PERIOD_M10, PERIOD_M15, PERIOD_M20, PERIOD_M30, PERIOD_H1, PERIOD_H2, PERIOD_H3, PERIOD_H4};
 
-
+//
 //+------------------------------------------------------------------+
 ulong GetMagicNumberByTimeframe(ENUM_TIMEFRAMES tf)
 {
@@ -885,10 +885,11 @@ bool GetCci(TimeframeConfig &config) {
    int handleCCI = iCCI(_Symbol, config.tf, 14, PRICE_TYPICAL);
    if(handleCCI == INVALID_HANDLE)
       return false;
-
-   if(CopyBuffer(handleCCI, 0, 0, 3, config.cci) <= 0)
+      
+   if(CopyBuffer(handleCCI, 0, 0, 15, config.cci) <= 0)
       return false;
-       
+      
+   ArrayReverse(config.cci);
    return true;
 }
 
@@ -901,7 +902,8 @@ bool GetMovingAverage(TimeframeConfig &config, int period, double &buffer[]) {
    // Pegando últimos 3 valores da média
    if(CopyBuffer(handleMA, 0, 0, 15, buffer) <= 0)
       return false;
-
+   
+   ArrayReverse(buffer);
    return true;
 }
 
@@ -911,9 +913,10 @@ bool GetAtr(TimeframeConfig &config) {
    if(atrHandle == INVALID_HANDLE)
       return false;
       
-   if(CopyBuffer(atrHandle, 0, 0, 3, config.atr) <= 0)
+   if(CopyBuffer(atrHandle, 0, 0, 6, config.atr) <= 0)
       return false;
 
+   ArrayReverse(config.atr);
    return true;
 }
 
@@ -970,7 +973,7 @@ bool HasEnoughWinningPeriods(ENUM_POSITION_TYPE tipo, int totalQtd = 2)
 }
 
 void MoveStopByATR(TimeframeConfig &config, double multiplicador = 2.0){
-   double atr = config.atr[0];
+   double atr = GetAverageValue(config.atr, 3);
    for(int i = 0; i < PositionsTotal(); i++) {
       ulong ticket = PositionGetTicket(i);
       if(ticket == 0)
@@ -993,7 +996,7 @@ void MoveStopByATR(TimeframeConfig &config, double multiplicador = 2.0){
          PositionGetDouble(POSITION_PRICE_OPEN),
          PositionGetDouble(POSITION_SL),
          PositionGetDouble(POSITION_PRICE_CURRENT),
-         config.atr[0]
+         atr
       );
     /*  double profit = PositionGetDouble(POSITION_PROFIT);
       if(profit > 0) {
@@ -1269,8 +1272,9 @@ void VerifyTendency(TimeframeConfig &config) {
       drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL_CANDIDATO" +  FormatDateToString(candles[0].time), clrRed);
       double ultimosCorposCompra = getCandleBodies(index, QTD_CANDLES, BUY);
       //IsBullish(candles[1]) && funciona
+       
       if (config.movingAverage[0] > precoAtual && config.movingAverage[1] > precoAtual && config.movingAverage[2] > precoAtual 
-         && config.adx[2] > config.adx[1] && config.cci[0] < CCI_MAX ) {
+         && config.adx[2] > config.adx[1]) {
          Print("Verificação de tendencia - ", config.label, " - SELL", " - Volume - ", newVolume);
          config.actualTendency = SELL;
          MaximosMinimos maxMin = getMinOrMax(1, QTD_CANDLES);
@@ -1297,7 +1301,7 @@ void VerifyTendency(TimeframeConfig &config) {
       double ultimosCorposVenda = getCandleBodies(index, QTD_CANDLES, SELL);
       //IsBearish(candles[1]) && funciona
       if ( config.movingAverage[0] < precoAtual && config.movingAverage[1] < precoAtual && config.movingAverage[2] < precoAtual 
-         && config.adx[1] > config.adx[2] && config.cci[0] > -CCI_MAX ) {
+         && config.adx[1] > config.adx[2]) {
          Print("Verificação de tendencia - ", config.label, " - BUY", " - Volume - ", newVolume);
          config.actualTendency = BUY;
          MaximosMinimos maxMin = getMinOrMax(1, QTD_CANDLES);
@@ -1328,11 +1332,11 @@ void ExecuteMartingale(TimeframeConfig &config, TYPE_NEGOCIATION type, MqlRates 
       while (percent > 0) {
          double body30Perc = (calcPoints(candle.close, candle.open) * percent);
          if (body30Perc > (config.atr[0] / _Point * percent)) {
-            double limitPrice = calcPrice(precoAtual, body30Perc);
             datetime expiration = TimeCurrent() + (config.tfSeconds / 2);
            // sl = calcPrice(sl, body30Perc);
             
             if (type == BUY) {
+               double limitPrice = calcPrice(precoAtual, -body30Perc);
                trade.BuyLimit(
                   NormalizeVolume(volume), // volume
                   NormalizeDouble(limitPrice, _Digits),                 // preço da ordem
@@ -1344,6 +1348,7 @@ void ExecuteMartingale(TimeframeConfig &config, TYPE_NEGOCIATION type, MqlRates 
                   "BUY_TENDENCY_MARTINGALE_"  + config.label
                );
             } else if (type == SELL) {
+               double limitPrice = calcPrice(precoAtual, body30Perc);
                trade.SellLimit(
                   NormalizeVolume(volume), // volume
                   NormalizeDouble(limitPrice, _Digits),                 // preço da ordem
@@ -1356,7 +1361,7 @@ void ExecuteMartingale(TimeframeConfig &config, TYPE_NEGOCIATION type, MqlRates 
                );
             }
          }
-         percent -= 0.20;
+         percent -= 0.10;
       }
    }
 }
@@ -1398,23 +1403,40 @@ double calcPoints(double val1, double val2, bool absValue = true) {
       return NormalizeDouble((val1 - val2), _Digits) / point;
 }
 
-bool isAverageTendency(TimeframeConfig &config, TYPE_NEGOCIATION type, int qtdItems, double precoAtual) {
+double GetAverageValue(double& indicator[], int qtdItems) {
+   double val = 0;
+   if (ArraySize(indicator) < qtdItems) {
+      return 0;
+   }
+   
+   for (int i = 0; i < qtdItems; i++) {
+      val += indicator[i];
+   }
+   
+   return val / qtdItems;
+}
+
+bool IsIndicatorTendency(double& indicator[], TYPE_NEGOCIATION type, int qtdItems) {
    int buy = 0, sell = 0;
+   if (ArraySize(indicator) < qtdItems) {
+      return false;
+   }
+   
    for (int i = 1; i < qtdItems; i++) {
-      if (config.movingAverage[i] < precoAtual && config.movingAverage[i-1] > config.movingAverage[i]) {
+      if (indicator[i] > indicator[i-1]) {
          buy++; 
       }
       
-      if (config.movingAverage[i] > precoAtual && config.movingAverage[i-1] < config.movingAverage[i]) {
+      if (indicator[i] < indicator[i-1]) {
          sell++; 
       }
    }
    
-   if (type == BUY && buy > sell) {
+   if (type == BUY && buy == qtdItems - 1) {
       return true;
    }
    
-   if (type == SELL && buy < sell) {
+   if (type == SELL && sell == qtdItems - 1) {
       return true;
    }
    
@@ -1766,7 +1788,7 @@ double IsTrendSaturated(TimeframeConfig &config, double precoAtual){
    if(isConsolidatedMA)
       return 0;
       
-   return GetFactor(distanceMA, config.atr[0],  ATR_MINIMUM);
+   return GetFactor(distanceMA, GetAverageValue(config.atr, 3),  ATR_MINIMUM);
 }
 
 bool IsMA50Consolidated(TimeframeConfig &config) {
@@ -1780,7 +1802,8 @@ bool IsMA50Consolidated(TimeframeConfig &config) {
       minMA = MathMin(minMA, config.movingAverage[i]);
    }
 
-   return slope < config.atr[0] * 0.2 && (maxMA - minMA) < config. atr[0] * 0.5;
+   double atr = GetAverageValue(config.atr, 3);
+   return slope < atr * 0.2 && (maxMA - minMA) < atr * 0.5;
 }
 
 double GetFactor(double distanceMA, double atr, ATR_TYPE atrMinimum) {

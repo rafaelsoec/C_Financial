@@ -119,6 +119,8 @@ input double PROPORTION_TAKE_STOP = 2;
  input bool ENABLE_MULTI_ROBOTS_IN_PROFIT = true;
 input bool ENABLE_TIMEFRAME_MULTIPLIER = true;
 input bool ENABLE_CLOSE_IN_LOSS = false;
+input bool ENABLE_SATURDAY = false;
+input bool ENABLE_MONDAY = false;
 input bool IGNORE_MAGIC_NUMBER = false;
 input int NUMBER_MAX_ROBOT = 5;
 input bool IS_TEST = false;
@@ -805,7 +807,15 @@ bool IsMarketOpenNow(int minutos = 0){
 
    // 0 = Domingo
    // 6 = Sábado
-   if((tempo.day_of_week == 0 && hora <= 20) || tempo.day_of_week == 6) {
+   if (ENABLE_SATURDAY && tempo.day_of_week == 6) {
+      return true;
+   }
+   
+   if (ENABLE_MONDAY && tempo.day_of_week == 0) {
+      return true;
+   }
+   
+   if(!ENABLE_MONDAY && tempo.day_of_week == 0 && hora <= 20) {
       return false;
    }
       

@@ -759,7 +759,7 @@ bool CheckDailyMaxLoss(double percentLossPerDay, string log_prefix = "") {
     if(profit <= -max_loss_dollars) {
         if(log_prefix != "") {
             Print(log_prefix, "❌ MAX LOSS DIÁRIO ATINGIDO! $", 
-                  DoubleToString(MathAbs(daily_loss), 2), "/", max_loss_dollars);
+                  DoubleToString(MathAbs(profit), 2), "/", max_loss_dollars);
         }
         return false;  // Pare de operar
     }

@@ -751,40 +751,12 @@ bool CheckDailyMaxLoss(double percentLossPerDay, string log_prefix = "") {
     if(percentLossPerDay <= 0) {
        return true;
     }
-    static double daily_loss = 0.0;
-    static datetime current_day = 0;
     double max_loss_dollars = percentLossPerDay;
     
-    datetime today = iTime(_Symbol, PERIOD_D1, 0);
-    
-    // Novo dia = reset perda
-    if(current_day != today) {
-        current_day = today;
-        daily_loss = 0.0;
-        if(log_prefix != "") Print(log_prefix, "🟢 NOVO DIA - Perda resetada");
-        return true;
-    }
-    
     // Calcula perda do dia (todas posições)
-    double today_loss = 0.0;
-    HistorySelect(today, TimeCurrent());
-    
-    for(int i = 0; i < HistoryDealsTotal(); i++) {
-        ulong ticket = HistoryDealGetTicket(i);
-        if(HistoryDealGetInteger(ticket, DEAL_ENTRY) == DEAL_ENTRY_OUT) {
-            double profit =  HistoryDealGetDouble(ticket, DEAL_PROFIT);
-            COUNTER_PROFIT += profit > 0 ? 1 : 0;
-            COUNTER_LOSS += profit < 0 ? 1 : 0;
-            
-            today_loss += profit;
-            today_loss += HistoryDealGetDouble(ticket, DEAL_SWAP);
-            today_loss += HistoryDealGetDouble(ticket, DEAL_COMMISSION);
-        }
-    }
-    
-    daily_loss = today_loss;
-    
-    if(daily_loss <= -max_loss_dollars) {
+    //double daily_loss = AccountInfoDouble(ACCOUNT_BALANCE) -  BALANCE ;
+    double profit = AccountInfoDouble(ACCOUNT_PROFIT);
+    if(profit <= -max_loss_dollars) {
         if(log_prefix != "") {
             Print(log_prefix, "❌ MAX LOSS DIÁRIO ATINGIDO! $", 
                   DoubleToString(MathAbs(daily_loss), 2), "/", max_loss_dollars);

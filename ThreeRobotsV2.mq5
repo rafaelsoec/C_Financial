@@ -102,17 +102,17 @@ struct MaximosMinimos
 };
 
 
-input double VOLUME = 0.01;
+input double VOLUME = 0.04;
 input int QTD_CANDLES = 5;
 input int MIN_CANDLES_IN_TREND = 3;
  double ADX_MINIMUN_VALUE = 10;
-input double LOSS_PER_DAY = 200;
-input ATR_TYPE ATR_MINIMUM = ATR_1_5;
+input double LOSS_PER_DAY = 500;
+input ATR_TYPE ATR_MINIMUM = ATR_3_5;
  MOVING_AVERAGE_TYPE MOVING_AVERAGE = MV_9;
 input MOVE_STOP_TYPE MOVE_STOP = MOVE_STOP_30;
 input double MOVE_STOP_PROTECTION_PERCENTUAL = 50;
  double ACCEPTABLE_CANDLE_BODY_PERCENTUAL = 70;
-input double PROPORTION_TAKE_STOP = 2;
+input double PROPORTION_TAKE_STOP = 1;
  input bool ENABLE_TENDENCY = true;
  input bool ENABLE_ENGOLFO = true;
  input bool ENABLE_MARTINGALLE = true;
@@ -341,10 +341,6 @@ void OnTick() {
       BALANCE = AccountInfoDouble(ACCOUNT_BALANCE);
    }
    
-   if(IsMaxRobots()) {
-      return;
-   }
-   
    if(HasNewCandle(PERIOD_M5)) {
       waitNewCandleMultRobot = false;
       waitNewCandleMartingalle = false;
@@ -352,6 +348,11 @@ void OnTick() {
    
    if(!IS_TEST) {
       showComments();
+      if(!CheckDailyMaxLoss(LOSS_PER_DAY, "USD ")) {
+           printf("Perda maxima atingida.");
+           closeAll();
+           return;  
+      }
    }
    
    if(HasNewCandle(PERIOD_M1)) {
@@ -366,11 +367,6 @@ void OnTick() {
          
          COUNTER_PROFIT = 0;
          COUNTER_LOSS = 0;
-         if(!CheckDailyMaxLoss(LOSS_PER_DAY, "USD ")) {
-              printf("Perda maxima atingida.");
-              closeAll();
-              return;  
-         }
       }
 /*
    
@@ -407,11 +403,25 @@ void OnTick() {
          return;
       }
      
+      
+      if (MOVE_STOP == MOVE_STOP_TRAIL) {
+         MoveStopByATR(configs[i]);
+      } 
          
       if(IsNewBar(configs[i])) {
          configs[i].waitNewCandle = false;
          configs[i].waitNewCandleHighRisk = false;
-      
+            
+         if (MOVE_STOP != MOVE_STOP_NONE) {
+            if (MOVE_STOP != MOVE_STOP_TRAIL) {
+                MoveStopPorPontos();
+            }
+         }
+
+         if(IsMaxRobots()) {
+            return;
+         }
+
          if (ENABLE_TENDENCY) {
             //VerifyOther(configs[i]);
             VerifyTendency(configs[i]);
@@ -420,20 +430,10 @@ void OnTick() {
          if(ENABLE_ENGOLFO) {
            VerifyEngolfo(configs[i]);
          }  /**/
-            
-         if (MOVE_STOP != MOVE_STOP_NONE) {
-            if (MOVE_STOP != MOVE_STOP_TRAIL) {
-                MoveStopPorPontos();
-            }
-         }
          
          if(!IS_TEST)
             DeleteHorizontalLinesByPrefix(configs[i].tf);
       }  
-      
-      if (MOVE_STOP == MOVE_STOP_TRAIL) {
-         MoveStopByATR(configs[i]);
-      } 
    }
 } 
 
@@ -1270,6 +1270,10 @@ void VerifyTendency(TimeframeConfig &config) {
 
          if (!DISABLED_NEGOTIATIONS) {
             double tendenciaExtrapolada = IsTrendSaturated(config, precoAtual);
+         
+            if (tendenciaExtrapolada == 0) {
+               return;
+            }
             newVolume = NormalizeVolume(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits));
             ExecuteMartingale(config, SELL, candles[1], precoAtual, newVolume, sl, tp);
             bool ok = trade.Sell(newVolume, _Symbol, precoAtual, sl, tp, "SELL_TENDENCY_" + config.label);
@@ -1297,6 +1301,10 @@ void VerifyTendency(TimeframeConfig &config) {
          
          if (!DISABLED_NEGOTIATIONS ) {
             double tendenciaExtrapolada = IsTrendSaturated(config, precoAtual);
+         
+            if (tendenciaExtrapolada == 0) {
+               return;
+            }
             newVolume = NormalizeVolume(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits));
             ExecuteMartingale(config, BUY, candles[1], precoAtual, newVolume, sl, tp);
             bool ok = trade.Buy(newVolume, _Symbol, precoAtual, sl, tp, "BUY_TENDENCY_" + config.label);

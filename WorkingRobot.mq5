@@ -355,13 +355,13 @@ void OnTick() {
       waitNewCandleMartingalle = false;
    }
    
-   if(HasNewCandle(PERIOD_M1)) {  
+ // if(HasNewCandle(PERIOD_M1)) {  
       if (MOVE_STOP != MOVE_STOP_NONE) {
          if (MOVE_STOP != MOVE_STOP_TRAIL) {
              MoveStopPorPontos();
          }
       }
-   }
+ //  }
    
    if(!IS_TEST) {
       showComments();
@@ -1139,11 +1139,14 @@ void VerifyEngolfo(TimeframeConfig &config) {
       return;
    }
 
-    if(config.maxRobotsEngolfo < 0 && IsMaxRobots()) {
+    if(config.maxRobotsEngolfo < 0) {
       return;
     }
       
-   
+    if(IsMaxRobots()) {
+      return;
+    }
+      
    bool c1Bull = IsBullish(candles[0]);
    bool c2Bull = IsBullish(candles[1]);
    bool c3Bull = IsBullish(candles[2]);
@@ -1239,7 +1242,11 @@ void VerifyEngolfo(TimeframeConfig &config) {
 void VerifyShortTendency(TimeframeConfig &config) {
     int index = 1;
     
-    if (config.maxRobotsShortTendency < 0 && IsMaxRobots()) {
+    if(config.maxRobotsShortTendency < 0) {
+      return;
+    }
+      
+    if(IsMaxRobots()) {
       return;
     }
 
@@ -1331,9 +1338,14 @@ void VerifyShortTendency(TimeframeConfig &config) {
 void VerifyTendency(TimeframeConfig &config) {
    int index = 1;
 
-  // if(config.maxRobotsTendency < 0 && IsMaxRobots()) {
-    //  return;
-   //}
+    if(config.maxRobotsTendency < 0) {
+      return;
+    }
+      
+    if(IsMaxRobots()) {
+      return;
+    }
+
       
    //int min = MathRound((double)QTD_CANDLES / 2.0);
    int initialTendency = getCandleTendecy(index, QTD_CANDLES, MIN_CANDLES_IN_TREND, false, ACCEPTABLE_CANDLE_BODY_PERCENTUAL);

@@ -1927,7 +1927,7 @@ double GetFactor(double distanceMA, double atr, ATR_TYPE atrMinimum) {
          if (i == minAtr) {
             return 1;
          } else {
-            return counter;
+            return ENABLE_TIMEFRAME_MULTIPLIER ? counter : 1;
          }
       }
    }

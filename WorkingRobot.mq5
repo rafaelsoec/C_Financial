@@ -12,6 +12,20 @@ struct BordersOperation {
    bool instantiated;
 };
 
+struct LossTrade {
+   datetime closeTime;
+   double profit;
+   ENUM_DEAL_TYPE type;
+   double price;
+};
+
+enum LOSS_TREND {
+   LOSS_NONE,
+   LOSS_BUY,
+   LOSS_SELL,
+   LOSS_BALANCED
+};
+
 enum MOVE_STOP_TYPE{
    MOVE_STOP_TRAIL = 1,
    MOVE_STOP_10    = 10,
@@ -150,7 +164,7 @@ bool countCycles = false, waitNewCandleMultRobot = false, waitNewCandleMartingal
 int MIN_COUNT_CANDIDATE_CANDLE = 5, BUY_COUNT = 0, SELL_COUNT = 0;
 ENUM_TIMEFRAMES tfs[] = { PERIOD_M10, PERIOD_M15, PERIOD_M20, PERIOD_M30, PERIOD_H1, PERIOD_H2, PERIOD_H3, PERIOD_H4};
 //---ENUM_TIMEFRAMES tfs[] = { PERIOD_M10 };
-bool MAX_LOSS_ATINGIDO = false;
+bool MAX_LOSS_ATINGIDO = false, BLOCK_BUYS = false, BLOCK_SELLS = false;
 
 //
 //+------------------------------------------------------------------+
@@ -355,6 +369,35 @@ void OnTick() {
       waitNewCandleMartingalle = false;
    }
    
+   if(HasNewCandle(PERIOD_M30)) {
+      LossTrade losses[];
+      if(GetLastHourLosses(_Symbol, losses, 3)) {
+         LOSS_TREND trend = GetLossTrend(losses);
+         switch(trend) {
+            case LOSS_BUY:
+               BLOCK_BUYS = true;
+               Print("Maioria das perdas foram em BUY");
+               break;
+      
+            case LOSS_SELL:
+               BLOCK_SELLS = true;
+               Print("Maioria das perdas foram em SELL");
+               break;
+      
+            case LOSS_BALANCED:
+               BLOCK_SELLS = false;
+               BLOCK_BUYS = false;
+               Print("Perdas equilibradas");
+               break;
+      
+            default:
+               BLOCK_SELLS = false;
+               BLOCK_BUYS = false;
+               Print("Nenhuma perda");
+         }
+      }
+   }
+   
  // if(HasNewCandle(PERIOD_M1)) {  
       if (MOVE_STOP != MOVE_STOP_NONE) {
          if (MOVE_STOP != MOVE_STOP_TRAIL) {
@@ -410,17 +453,8 @@ void OnTick() {
          printf("Atr Nao Recuperado - " + EnumToString(configs[i].tf));
          return;
       }
-     
-    
-      int totalPositions = PositionsTotal();
-      if(totalPositions == 0) {
-         configs[i].waitNewCandle = false;
-         configs[i].waitNewCandleHighRisk = false;
-         configs[i].maxRobotsEngolfo = NUMBER_MAX_ROBOT;
-         configs[i].maxRobotsTendency = NUMBER_MAX_ROBOT;
-         configs[i].maxRobotsShortTendency = NUMBER_MAX_ROBOT;
-      }
       
+      int totalPositions = PositionsTotal();
       if (configs[i].maxRobotsEngolfo < 0 && totalPositions < NUMBER_MAX_ROBOT) {
          configs[i].maxRobotsEngolfo = NUMBER_MAX_ROBOT;
          printf("Resetando robos de engolfo!");
@@ -435,18 +469,26 @@ void OnTick() {
          configs[i].maxRobotsShortTendency = NUMBER_MAX_ROBOT;
          printf("Resetando robos de tendencia curta!");
       }
-      
+       
       if (MOVE_STOP == MOVE_STOP_TRAIL) {
          MoveStopByATR(configs[i]);
       } 
 
       if (ENABLE_SHORT_TENDENCY) {
-         VerifyShortTendency(configs[i]);
+         if (configs[i].tfSeconds < PeriodSeconds(PERIOD_H1)) {
+            VerifyShortTendency(configs[i]);
+         }
       }
          
       if(IsNewBar(configs[i])) {
          configs[i].waitNewCandle = false;
          configs[i].waitNewCandleHighRisk = false;
+         
+         if(totalPositions == 0) {
+            configs[i].maxRobotsEngolfo = NUMBER_MAX_ROBOT;
+            configs[i].maxRobotsTendency = NUMBER_MAX_ROBOT;
+            configs[i].maxRobotsShortTendency = NUMBER_MAX_ROBOT;
+         }
          
          if(!IS_TEST) {
             DeleteHorizontalLinesByPrefix(configs[i].tf);
@@ -770,9 +812,9 @@ bool IsNewDay()
    }
    return false;
 }
+
 //+------------------------------------------------------------------+
-bool IsNewBar(TimeframeConfig &config)
-{
+bool IsNewBar(TimeframeConfig &config) {
    datetime currentBarTime = iTime(_Symbol, config.tf, 0);
 
    if(currentBarTime == 0)
@@ -881,6 +923,32 @@ bool IsBearish(const MqlRates &candle)
 {
    return candle.close < candle.open;
 }
+
+
+LOSS_TREND GetLossTrend(LossTrade &losses[]) {
+   int buyLoss=0;
+   int sellLoss=0;
+
+   for(int i=0;i<ArraySize(losses);i++) {
+      if(losses[i].type==DEAL_TYPE_BUY)
+         buyLoss++;
+
+      if(losses[i].type==DEAL_TYPE_SELL)
+         sellLoss++;
+   }
+
+   if(buyLoss==0 && sellLoss==0)
+      return LOSS_NONE;
+
+   if(buyLoss > sellLoss*1.5)
+      return LOSS_BUY;
+
+   if(sellLoss > buyLoss*1.5)
+      return LOSS_SELL;
+
+   return LOSS_BALANCED;
+}
+
 //+------------------------------------------------------------------+
 bool GetLastClosedCandles(ENUM_TIMEFRAMES tf, MqlRates &rates[])
 {
@@ -1089,6 +1157,43 @@ bool IsNearCandleClose(TimeframeConfig &config, int minutesBeforeClose) {
    return secondsRemaining <= (minutesBeforeClose * 60);
 }
 
+bool GetLastHourLosses(string symbol, LossTrade &losses[], int qtdLosses) {
+   ArrayResize(losses,0);
+
+   datetime from = TimeCurrent() - 3600;
+   datetime to   = TimeCurrent();
+
+   if(!HistorySelect(from,to))
+      return false;
+
+   int total = HistoryDealsTotal();
+
+   for(int i=0;i<total;i++) {
+      ulong ticket = HistoryDealGetTicket(i);
+
+      if(HistoryDealGetString(ticket,DEAL_SYMBOL) != symbol)
+         continue;
+
+      if((ENUM_DEAL_ENTRY)HistoryDealGetInteger(ticket,DEAL_ENTRY) != DEAL_ENTRY_OUT)
+         continue;
+
+      double profit = HistoryDealGetDouble(ticket,DEAL_PROFIT);
+
+      if(profit >= 0)
+         continue;
+
+      int pos = ArraySize(losses);
+      ArrayResize(losses,pos+1);
+
+      losses[pos].closeTime = (datetime)HistoryDealGetInteger(ticket,DEAL_TIME);
+      losses[pos].profit    = profit;
+      losses[pos].type      = (ENUM_DEAL_TYPE)HistoryDealGetInteger(ticket,DEAL_TYPE);
+      losses[pos].price     = HistoryDealGetDouble(ticket,DEAL_PRICE);
+   }
+
+   return ArraySize(losses) > qtdLosses;
+}
+
 double isLateralizado(int start, int end) {
    MaximosMinimos maxMin = getMinOrMax(start, end);
    double minLow = -1;
@@ -1276,7 +1381,7 @@ void VerifyShortTendency(TimeframeConfig &config) {
          //&& config.adx[2] > config.adx[1]  && config.cci[0] > -CCI_MAX
          // && IsBiggerBodyThanWick(candles[1], ACCEPTABLE_CANDLE_BODY_PERCENTUAL) && IsBiggerBodyThanWick(candles[2], ACCEPTABLE_CANDLE_BODY_PERCENTUAL)
       if (config.movingAverage[1] > candles[0].high && config.movingAverage[1] > candles[1].high && config.movingAverage[2] > candles[2].high 
-        && config.adx[2] > config.adx[1]  && candles[0].close < candles[1].low) {
+        && config.adx[2] > config.adx[1]  && candles[0].close < candles[1].low && !BLOCK_SELLS) {
          config.actualTendency = SELL;
          double sl = candles[2].high;
          double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
@@ -1305,7 +1410,7 @@ void VerifyShortTendency(TimeframeConfig &config) {
          //&& config.adx[1] > config.adx[2] && config.cci[0] < CCI_MAX
          // && IsBiggerBodyThanWick(candles[1], ACCEPTABLE_CANDLE_BODY_PERCENTUAL) && IsBiggerBodyThanWick(candles[2], ACCEPTABLE_CANDLE_BODY_PERCENTUAL)
       if (config.movingAverage[1] < candles[0].low && config.movingAverage[1] < candles[1].low && config.movingAverage[2] < candles[2].low 
-         && config.adx[1] > config.adx[2] && candles[0].close > candles[1].high ) {
+         && config.adx[1] > config.adx[2] && candles[0].close > candles[1].high && !BLOCK_BUYS ) {
          config.actualTendency = BUY;
          double sl = candles[2].low;
          double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
@@ -1366,7 +1471,7 @@ void VerifyTendency(TimeframeConfig &config) {
    if(initialTendency == -1  && diff){
       //IsBullish(candles[1]) && funciona
       if (config.movingAverage[0] > precoAtual && config.movingAverage[1] > precoAtual && config.movingAverage[2] > precoAtual 
-         && config.adx[2] > config.adx[1] ) {
+         && config.adx[2] > config.adx[1] && !BLOCK_SELLS) {
          config.actualTendency = SELL;
          MaximosMinimos maxMin = getMinOrMax(1, QTD_CANDLES);
          double sl = maxMin.high;
@@ -1397,7 +1502,7 @@ void VerifyTendency(TimeframeConfig &config) {
    } else  if(initialTendency == 1 && diff ){
       //IsBearish(candles[1]) && funciona
       if ( config.movingAverage[0] < precoAtual && config.movingAverage[1] < precoAtual && config.movingAverage[2] < precoAtual 
-         && config.adx[1] > config.adx[2]  ) {
+         && config.adx[1] > config.adx[2]  && !BLOCK_BUYS ) {
          config.actualTendency = BUY;
          MaximosMinimos maxMin = getMinOrMax(1, QTD_CANDLES);
          double sl = maxMin.low;

@@ -630,8 +630,11 @@ void MoveStopPorPontos()
          if(type == POSITION_TYPE_BUY ) {
             BUY_COUNT++;
             if (entry > slAtual || slAtual == 0) {
-               tpAtual = tpAtual == 0 ? calcPrice(currentPrice, 1000) : tpAtual;
-               pontosMove = 1000  * percentualMoveStop / 100;
+               if (tpAtual == 0) {
+                  tpAtual = calcPrice(currentPrice, 1000);
+                  pontosMove = 1000 * percentualMoveStop / 100;
+               }
+               
                if (pontosEntrada > pontosMove * percentProtenction) {
                   novoSL = NormalizeDouble(entry + (pontosProtecao * percentProtenction * point),  _Digits);
                   if(trade.PositionModify(ticket, novoSL, tpAtual))
@@ -660,8 +663,11 @@ void MoveStopPorPontos()
          if(type == POSITION_TYPE_SELL) {
             SELL_COUNT++;
             if (entry < slAtual || slAtual == 0) {
-               tpAtual = tpAtual == 0 ? calcPrice(currentPrice, -1000) : tpAtual;
-               pontosMove = 1000  * percentualMoveStop / 100;
+               if (tpAtual == 0) {
+                  tpAtual = calcPrice(currentPrice, -1000);
+                  pontosMove = 1000 * percentualMoveStop / 100;
+               }
+               
                if (pontosEntrada > pontosMove * percentProtenction) {
                   novoSL = NormalizeDouble(entry - (pontosProtecao  *  percentProtenction * point),  _Digits);
                   if(trade.PositionModify(ticket, novoSL, tpAtual))

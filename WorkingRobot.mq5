@@ -635,7 +635,7 @@ void MoveStopPorPontos()
                   pontosMove = 1000 * percentualMoveStop / 100;
                }
                
-               if (pontosEntrada > pontosMove * percentProtenction) {
+               if (pontosEntrada > pontosMove) {
                   novoSL = NormalizeDouble(entry + (pontosProtecao * percentProtenction * point),  _Digits);
                   if(trade.PositionModify(ticket, novoSL, tpAtual))
                      Print("Stop movido - Protecao - ", entry, " - BUY");
@@ -668,7 +668,7 @@ void MoveStopPorPontos()
                   pontosMove = 1000 * percentualMoveStop / 100;
                }
                
-               if (pontosEntrada > pontosMove * percentProtenction) {
+               if (pontosEntrada > pontosMove) {
                   novoSL = NormalizeDouble(entry - (pontosProtecao  *  percentProtenction * point),  _Digits);
                   if(trade.PositionModify(ticket, novoSL, tpAtual))
                      Print("Stop movido - Protecao - ", entry, " - SELL");

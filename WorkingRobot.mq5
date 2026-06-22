@@ -643,7 +643,7 @@ void MoveStopPorPontos()
             } else {
               // MoveTakeProfitIfNearTarget(ticket);
                if (pontosSL > pontosMove) {
-                  novoSL = NormalizeDouble(slAtual + (pontosProtecao * point),  _Digits);
+                  novoSL = NormalizeDouble(slAtual + (pontosProtecao *  percentProtenction  * point),  _Digits);
                   novoTP = ENABLE_MOVE_TAKE ? NormalizeDouble(tpAtual + (pontosProtecao * point),  _Digits) : tpAtual;
                   if(trade.PositionModify(ticket, novoSL, novoTP))
                      Print("Stop movido - ", novoSL, " - BUY");
@@ -676,7 +676,7 @@ void MoveStopPorPontos()
             } else {
               // MoveTakeProfitIfNearTarget(ticket);
                if (pontosSL > pontosMove) {
-                  novoSL = NormalizeDouble(slAtual - (pontosProtecao * point),  _Digits);
+                  novoSL = NormalizeDouble(slAtual - (pontosProtecao *  percentProtenction  * point),  _Digits);
                   novoTP = ENABLE_MOVE_TAKE ? NormalizeDouble(tpAtual - (pontosProtecao * point),  _Digits) : tpAtual;
                   if(trade.PositionModify(ticket, novoSL, novoTP))
                      Print("Stop movido - ", novoSL, " - SELL");

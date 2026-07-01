@@ -146,7 +146,7 @@ input bool IS_TEST = false;
  bool DISABLED_SECONDARY_VALIDATIONS = true;
  bool DISABLED_LATERAL_MARKET_VALIDATIONS = true;
 input bool ENABLE_SWING_TRADE = false;
- bool ENABLE_MOVE_TAKE = false;
+ bool ENABLE_MOVE_TAKE = true;
 double CCI_MAX = 180;
 
  int NUMBER_MAX_ROBOT_BY_TIMEFRAME = 3;
@@ -398,13 +398,13 @@ void OnTick() {
       }
    }
    
- // if(HasNewCandle(PERIOD_M1)) {  
+  if(HasNewCandle(PERIOD_M1)) {  
       if (MOVE_STOP != MOVE_STOP_NONE) {
          if (MOVE_STOP != MOVE_STOP_TRAIL) {
              MoveStopPorPontos();
          }
       }
- //  }
+  }
    
    if(!IS_TEST) {
       showComments();
@@ -1021,7 +1021,7 @@ bool GetAtr(TimeframeConfig &config) {
    if(atrHandle == INVALID_HANDLE)
       return false;
       
-   if(CopyBuffer(atrHandle, 0, 0, 6, config.atr) <= 0)
+   if(CopyBuffer(atrHandle, 0, 0, 15, config.atr) <= 0)
       return false;
 
    ArrayReverse(config.atr);
@@ -1401,12 +1401,18 @@ void VerifyShortTendency(TimeframeConfig &config) {
             }
             
             newVolume = NormalizeVolume(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits));
-            bool ok = trade.Sell(newVolume, _Symbol, precoAtual, sl, tp, "SELL_SHORT_TENDENCY_" + config.label);
-            if(ok){
-               drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL_CURTO_CANDIDATO" +  FormatDateToString(candles[0].time), clrRosyBrown);
-               Print("SELL SHORT TENDENCY executado com sucesso em ", config.label);
-               config.waitNewCandleHighRisk = true;
-               config.maxRobotsShortTendency--;
+            double tamCandle = candles[1].high - candles[1].low;
+            double atrMid = GetAverageValue(config.atr, 3);
+            if (tamCandle >= atrMid *  1.5) {
+               ExecuteMartingale(config, SELL, candles[1], precoAtual, newVolume, sl, tp);
+            } else {
+               bool ok = trade.Sell(newVolume, _Symbol, precoAtual, sl, tp, "SELL_SHORT_TENDENCY_" + config.label);
+               if(ok){
+                  drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL_CURTO_CANDIDATO" +  FormatDateToString(candles[0].time), clrRosyBrown);
+                  Print("SELL SHORT TENDENCY executado com sucesso em ", config.label);
+                  config.waitNewCandleHighRisk = true;
+                  config.maxRobotsShortTendency--;
+               }
             }
          }
       }
@@ -1431,14 +1437,19 @@ void VerifyShortTendency(TimeframeConfig &config) {
             }
             
             newVolume = NormalizeVolume(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits));
-           bool ok = trade.Buy(newVolume, _Symbol, precoAtual, sl, tp, "BUY_SHORT_TENDENCY_" + config.label);
-           if(ok){
-               drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_BUY_CURTO_CANDIDATO" +  FormatDateToString(candles[0].time), clrAqua);
-               Print("BUY SHORT TENDENCY executado com sucesso em ", config.label);
-               config.waitNewCandleHighRisk = true;
-               config.maxRobotsShortTendency--;
-           }
-            
+            double tamCandle = candles[1].high - candles[1].low;
+            double atrMid = GetAverageValue(config.atr, 3);
+            if (tamCandle >= atrMid * 1.5) {
+               ExecuteMartingale(config, BUY, candles[1], precoAtual, newVolume, sl, tp);
+            } else {
+               bool ok = trade.Buy(newVolume, _Symbol, precoAtual, sl, tp, "BUY_SHORT_TENDENCY_" + config.label);
+               if(ok){
+                  drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_BUY_CURTO_CANDIDATO" +  FormatDateToString(candles[0].time), clrAqua);
+                  Print("BUY SHORT TENDENCY executado com sucesso em ", config.label);
+                  config.waitNewCandleHighRisk = true;
+                  config.maxRobotsShortTendency--;
+               }
+           } 
          }
       }
    }

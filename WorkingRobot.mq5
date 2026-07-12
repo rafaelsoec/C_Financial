@@ -19,6 +19,14 @@ struct LossTrade {
    double price;
 };
 
+enum VOLATILITY {
+   VERY_LOW,
+   LOW,
+   MEDIUM,
+   HIGH,
+   VERY_HIGH
+};
+
 enum LOSS_TREND {
    LOSS_NONE,
    LOSS_BUY,
@@ -119,23 +127,23 @@ struct MaximosMinimos
 };
 
 
-input double VOLUME = 0.05;
+input double VOLUME = 0.03;
 input int QTD_CANDLES = 5;
 input int MIN_CANDLES_IN_TREND = 3;
  double ADX_MINIMUN_VALUE = 10;
-input double LOSS_PER_DAY = 500;
-input ATR_TYPE ATR_MINIMUM = ATR_0_5;
+input double LOSS_PER_DAY = 350;
+input ATR_TYPE ATR_MINIMUM = ATR_1_5;
 input MOVING_AVERAGE_TYPE MOVING_AVERAGE = MV_9;
 input MOVE_STOP_TYPE MOVE_STOP = MOVE_STOP_30;
 input double MOVE_STOP_PROTECTION_PERCENTUAL = 50;
  double ACCEPTABLE_CANDLE_BODY_PERCENTUAL = 70;
-input double PROPORTION_TAKE_STOP = 1;
+input double PROPORTION_TAKE_STOP = 2;
  input bool ENABLE_SHORT_TENDENCY = true;
  input bool ENABLE_TENDENCY = true;
  input bool ENABLE_ENGOLFO = true;
  input bool ENABLE_MARTINGALLE = false;
- input bool ENABLE_MULTI_ROBOTS_IN_PROFIT = false;
-input bool ENABLE_TIMEFRAME_MULTIPLIER = false;
+ input bool ENABLE_MULTI_ROBOTS_IN_PROFIT = true;
+input bool ENABLE_TIMEFRAME_MULTIPLIER = true;
  bool ENABLE_CLOSE_IN_LOSS = false;
  bool ENABLE_SATURDAY = false;
  bool ENABLE_MONDAY = false;
@@ -162,7 +170,7 @@ MqlTick tick;
 int countOrders = 0;
 bool countCycles = false, waitNewCandleMultRobot = false, waitNewCandleMartingalle = false;
 int MIN_COUNT_CANDIDATE_CANDLE = 5, BUY_COUNT = 0, SELL_COUNT = 0;
-ENUM_TIMEFRAMES tfs[] = { PERIOD_M10, PERIOD_M15, PERIOD_M20, PERIOD_M30, PERIOD_H1, PERIOD_H2, PERIOD_H3, PERIOD_H4};
+ENUM_TIMEFRAMES tfs[] = { PERIOD_M10, PERIOD_M15, PERIOD_M20, PERIOD_M30, PERIOD_H1};
 //---ENUM_TIMEFRAMES tfs[] = { PERIOD_M10 };
 bool MAX_LOSS_ATINGIDO = false, BLOCK_BUYS = false, BLOCK_SELLS = false;
 
@@ -369,7 +377,7 @@ void OnTick() {
       waitNewCandleMartingalle = false;
    }
    
-   if(HasNewCandle(PERIOD_M30)) {
+   /*if(HasNewCandle(PERIOD_M30)) {
       LossTrade losses[];
       if(GetLastHourLosses(_Symbol, losses, 3)) {
          LOSS_TREND trend = GetLossTrend(losses);
@@ -396,7 +404,7 @@ void OnTick() {
                Print("Nenhuma perda");
          }
       }
-   }
+   }*/   
    
   if(HasNewCandle(PERIOD_M1)) {  
       if (MOVE_STOP != MOVE_STOP_NONE) {
@@ -474,10 +482,11 @@ void OnTick() {
          MoveStopByATR(configs[i]);
       } 
 
+      double volatility = GetVolatilityPercent(configs[i], 8);
       if (ENABLE_SHORT_TENDENCY) {
-         if (configs[i].tfSeconds < PeriodSeconds(PERIOD_H1)) {
+        if ( volatility  > 1) {
             VerifyShortTendency(configs[i]);
-         }
+        }
       }
          
       if(IsNewBar(configs[i])) {
@@ -495,12 +504,16 @@ void OnTick() {
          }
 
          if (ENABLE_TENDENCY) {
+           if ( volatility  > 1) {
             //VerifyOther(configs[i]);
-            VerifyTendency(configs[i]);
+               VerifyTendency(configs[i]);
+           }
          }
       
          if(ENABLE_ENGOLFO) {
-           VerifyEngolfo(configs[i]);
+           if ( volatility  > 1) {
+               VerifyEngolfo(configs[i]);
+           }
          }  /**/
       }  
    }
@@ -1387,7 +1400,7 @@ void VerifyShortTendency(TimeframeConfig &config) {
          //&& config.adx[2] > config.adx[1]  && config.cci[0] > -CCI_MAX
          // && IsBiggerBodyThanWick(candles[1], ACCEPTABLE_CANDLE_BODY_PERCENTUAL) && IsBiggerBodyThanWick(candles[2], ACCEPTABLE_CANDLE_BODY_PERCENTUAL)
       if (config.movingAverage[1] > candles[0].high && config.movingAverage[1] > candles[1].high && config.movingAverage[2] > candles[2].high 
-        && config.adx[2] > config.adx[1]  && candles[0].close < candles[1].low && !BLOCK_SELLS) {
+       && candles[0].close < candles[1].close ) {
          config.actualTendency = SELL;
          double sl = candles[2].high;
          double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
@@ -1401,18 +1414,15 @@ void VerifyShortTendency(TimeframeConfig &config) {
             }
             
             newVolume = NormalizeVolume(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits));
-            double tamCandle = candles[1].high - candles[1].low;
-            double atrMid = GetAverageValue(config.atr, 3);
-            if (tamCandle >= atrMid *  1.5) {
-               ExecuteMartingale(config, SELL, candles[1], precoAtual, newVolume, sl, tp);
-            } else {
-               bool ok = trade.Sell(newVolume, _Symbol, precoAtual, sl, tp, "SELL_SHORT_TENDENCY_" + config.label);
-               if(ok){
-                  drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL_CURTO_CANDIDATO" +  FormatDateToString(candles[0].time), clrRosyBrown);
-                  Print("SELL SHORT TENDENCY executado com sucesso em ", config.label);
-                  config.waitNewCandleHighRisk = true;
-                  config.maxRobotsShortTendency--;
+            bool ok = trade.Sell(newVolume, _Symbol, precoAtual, sl, tp, "SELL_SHORT_TENDENCY_" + config.label);
+            if(ok){
+               if (ENABLE_MARTINGALLE) {
+                  ExecuteMartingale(config, SELL, candles[1], precoAtual, newVolume, sl, tp);
                }
+               drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL_CURTO_CANDIDATO" +  FormatDateToString(candles[0].time), clrRosyBrown);
+               Print("SELL SHORT TENDENCY executado com sucesso em ", config.label);
+               config.waitNewCandleHighRisk = true;
+               config.maxRobotsShortTendency--;
             }
          }
       }
@@ -1422,7 +1432,7 @@ void VerifyShortTendency(TimeframeConfig &config) {
          //&& config.adx[1] > config.adx[2] && config.cci[0] < CCI_MAX
          // && IsBiggerBodyThanWick(candles[1], ACCEPTABLE_CANDLE_BODY_PERCENTUAL) && IsBiggerBodyThanWick(candles[2], ACCEPTABLE_CANDLE_BODY_PERCENTUAL)
       if (config.movingAverage[1] < candles[0].low && config.movingAverage[1] < candles[1].low && config.movingAverage[2] < candles[2].low 
-         && config.adx[1] > config.adx[2] && candles[0].close > candles[1].high && !BLOCK_BUYS ) {
+         && candles[0].close > candles[1].close  ) {
          config.actualTendency = BUY;
          double sl = candles[2].low;
          double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
@@ -1437,19 +1447,16 @@ void VerifyShortTendency(TimeframeConfig &config) {
             }
             
             newVolume = NormalizeVolume(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits));
-            double tamCandle = candles[1].high - candles[1].low;
-            double atrMid = GetAverageValue(config.atr, 3);
-            if (tamCandle >= atrMid * 1.5) {
-               ExecuteMartingale(config, BUY, candles[1], precoAtual, newVolume, sl, tp);
-            } else {
-               bool ok = trade.Buy(newVolume, _Symbol, precoAtual, sl, tp, "BUY_SHORT_TENDENCY_" + config.label);
-               if(ok){
-                  drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_BUY_CURTO_CANDIDATO" +  FormatDateToString(candles[0].time), clrAqua);
-                  Print("BUY SHORT TENDENCY executado com sucesso em ", config.label);
-                  config.waitNewCandleHighRisk = true;
-                  config.maxRobotsShortTendency--;
+            bool ok = trade.Buy(newVolume, _Symbol, precoAtual, sl, tp, "BUY_SHORT_TENDENCY_" + config.label);
+            if(ok){
+               if (ENABLE_MARTINGALLE) {
+                  ExecuteMartingale(config, BUY, candles[1], precoAtual, newVolume, sl, tp);
                }
-           } 
+               drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_BUY_CURTO_CANDIDATO" +  FormatDateToString(candles[0].time), clrAqua);
+               Print("BUY SHORT TENDENCY executado com sucesso em ", config.label);
+               config.waitNewCandleHighRisk = true;
+               config.maxRobotsShortTendency--;
+            }
          }
       }
    }
@@ -2202,4 +2209,35 @@ int getCandleTendecyByType(int start, int end) {
    }
    
    return 0;
+}
+
+double GetVolatilityPercent(TimeframeConfig &config, int numCandles = 100){
+   double atrAtual = config.atr[0];
+   double soma = 0.0;
+   for(int i = 1; i <= numCandles; i++) {
+      soma += config.atr[i];
+   }
+
+   double media = soma / numCandles;
+   double indice = atrAtual / media;
+   return indice;
+}
+
+
+VOLATILITY GetVolatilityLevel(TimeframeConfig &config, int numCandles = 100){
+   double indice = GetVolatilityPercent(config, numCandles);
+
+   if(indice < 0.3)
+      return VERY_LOW;
+
+   if(indice < 0.7)
+      return LOW;
+
+   if(indice < 1.2)
+      return MEDIUM;
+
+   if(indice < 1.5)
+      return HIGH;
+
+   return VERY_HIGH;
 }

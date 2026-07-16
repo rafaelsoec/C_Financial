@@ -281,7 +281,7 @@ string TimeframeToLabel(ENUM_TIMEFRAMES tf)
 
 ENUM_TIMEFRAMES getTfByComment(string tfComment) {
    for(int i = 0; i < ArraySize(configs); i++) {
-      string tfLabel = TimeframeToLabel(configs[i].tf);
+      string tfLabel = "TENDENCY_" + TimeframeToLabel(configs[i].tf);
       if(StringFind(tfComment, tfLabel) >= 0) {
          return  configs[i].tf;
       }
@@ -1336,7 +1336,7 @@ void VerifyEngolfo(TimeframeConfig &config) {
                   NormalizeDouble(tpSell, _Digits),
                   ORDER_TIME_SPECIFIED,
                   expiration,
-                  "SELL_ENGOLFO_"  + config.label
+                  "SELL_ENGOLFO_TENDENCY_"  + config.label
                );
             }
             if (config.movingAverage[0] < precoAtual && config.movingAverage[1] < precoAtual && config.movingAverage[2] < precoAtual 
@@ -1352,7 +1352,7 @@ void VerifyEngolfo(TimeframeConfig &config) {
                   NormalizeDouble(tpBuy, _Digits),
                   ORDER_TIME_SPECIFIED,
                   expiration,
-                  "BUY_ENGOLFO_"  + config.label
+                  "BUY_ENGOLFO_TENDENCY_"  + config.label
                );
             }
         }
@@ -1400,7 +1400,8 @@ void VerifyShortTendency(TimeframeConfig &config) {
          //&& config.adx[2] > config.adx[1]  && config.cci[0] > -CCI_MAX
          // && IsBiggerBodyThanWick(candles[1], ACCEPTABLE_CANDLE_BODY_PERCENTUAL) && IsBiggerBodyThanWick(candles[2], ACCEPTABLE_CANDLE_BODY_PERCENTUAL)
       if (config.movingAverage[1] > candles[0].high && config.movingAverage[1] > candles[1].high && config.movingAverage[2] > candles[2].high 
-       && candles[0].close < candles[1].close ) {
+      // && candles[0].close < candles[1].close
+       ) {
          config.actualTendency = SELL;
          double sl = candles[2].high;
          double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
@@ -1416,9 +1417,7 @@ void VerifyShortTendency(TimeframeConfig &config) {
             newVolume = NormalizeVolume(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits));
             bool ok = trade.Sell(newVolume, _Symbol, precoAtual, sl, tp, "SELL_SHORT_TENDENCY_" + config.label);
             if(ok){
-               if (ENABLE_MARTINGALLE) {
-                  ExecuteMartingale(config, SELL, candles[1], precoAtual, newVolume, sl, tp);
-               }
+               ExecuteMartingale(config, SELL, calcPoints(candles[2].open, candles[1].close), precoAtual, newVolume, sl, tp, 0.15);
                drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL_CURTO_CANDIDATO" +  FormatDateToString(candles[0].time), clrRosyBrown);
                Print("SELL SHORT TENDENCY executado com sucesso em ", config.label);
                config.waitNewCandleHighRisk = true;
@@ -1432,7 +1431,8 @@ void VerifyShortTendency(TimeframeConfig &config) {
          //&& config.adx[1] > config.adx[2] && config.cci[0] < CCI_MAX
          // && IsBiggerBodyThanWick(candles[1], ACCEPTABLE_CANDLE_BODY_PERCENTUAL) && IsBiggerBodyThanWick(candles[2], ACCEPTABLE_CANDLE_BODY_PERCENTUAL)
       if (config.movingAverage[1] < candles[0].low && config.movingAverage[1] < candles[1].low && config.movingAverage[2] < candles[2].low 
-         && candles[0].close > candles[1].close  ) {
+       //  && candles[0].close > candles[1].close 
+        ) {
          config.actualTendency = BUY;
          double sl = candles[2].low;
          double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
@@ -1449,9 +1449,7 @@ void VerifyShortTendency(TimeframeConfig &config) {
             newVolume = NormalizeVolume(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits));
             bool ok = trade.Buy(newVolume, _Symbol, precoAtual, sl, tp, "BUY_SHORT_TENDENCY_" + config.label);
             if(ok){
-               if (ENABLE_MARTINGALLE) {
-                  ExecuteMartingale(config, BUY, candles[1], precoAtual, newVolume, sl, tp);
-               }
+               ExecuteMartingale(config, BUY, calcPoints(candles[2].open, candles[1].close), precoAtual, newVolume, sl, tp, 0.15);
                drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_BUY_CURTO_CANDIDATO" +  FormatDateToString(candles[0].time), clrAqua);
                Print("BUY SHORT TENDENCY executado com sucesso em ", config.label);
                config.waitNewCandleHighRisk = true;
@@ -1514,7 +1512,7 @@ void VerifyTendency(TimeframeConfig &config) {
             }
             
             newVolume = NormalizeVolume(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits));
-            ExecuteMartingale(config, SELL, candles[1], precoAtual, newVolume, sl, tp);
+            ExecuteMartingale(config, SELL, calcPoints(maxMin.low, maxMin.high), precoAtual, newVolume, sl, tp, 0.10);
             bool ok = trade.Sell(newVolume, _Symbol, precoAtual, sl, tp, "SELL_TENDENCY_" + config.label);
             if(ok){
                config.maxRobotsTendency--;
@@ -1545,7 +1543,7 @@ void VerifyTendency(TimeframeConfig &config) {
             }
             
             newVolume = NormalizeVolume(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits));
-            ExecuteMartingale(config, BUY, candles[1], precoAtual, newVolume, sl, tp);
+            ExecuteMartingale(config, BUY, calcPoints(maxMin.low, maxMin.high), precoAtual, newVolume, sl, tp, 0.10);
             bool ok = trade.Buy(newVolume, _Symbol, precoAtual, sl, tp, "BUY_TENDENCY_" + config.label);
             if(ok){
                config.maxRobotsTendency--;
@@ -1557,42 +1555,40 @@ void VerifyTendency(TimeframeConfig &config) {
    }
 }
 
-void ExecuteMartingale(TimeframeConfig &config, TYPE_NEGOCIATION type, MqlRates &candle, double precoAtual, double volume, double sl, double tp) {
+void ExecuteMartingale(TimeframeConfig &config, TYPE_NEGOCIATION type, double points, double precoAtual, double volume, double sl, double tp, double percentReduction) { 
    if (ENABLE_MARTINGALLE) {
-      double percent = 0.50;
+      double percent = 0.5;
       while (percent > 0) {
-         double body30Perc = (calcPoints(candle.close, candle.open) * percent);
-         if (body30Perc > (config.atr[0] / _Point * percent)) {
-            datetime expiration = TimeCurrent() + (config.tfSeconds / 2);
-           // sl = calcPrice(sl, body30Perc);
-            
-            if (type == BUY) {
-               double limitPrice = calcPrice(precoAtual, -body30Perc);
-               trade.BuyLimit(
-                  NormalizeVolume(volume), // volume
-                  NormalizeDouble(limitPrice, _Digits),                 // preço da ordem
-                  _Symbol,
-                  NormalizeDouble(sl, _Digits),
-                  NormalizeDouble(tp, _Digits),
-                  ORDER_TIME_SPECIFIED,
-                  expiration,
-                  "BUY_TENDENCY_MARTINGALE_"  + config.label
-               );
-            } else if (type == SELL) {
-               double limitPrice = calcPrice(precoAtual, body30Perc);
-               trade.SellLimit(
-                  NormalizeVolume(volume), // volume
-                  NormalizeDouble(limitPrice, _Digits),                 // preço da ordem
-                  _Symbol,
-                  NormalizeDouble(sl, _Digits),
-                  NormalizeDouble(tp, _Digits),
-                  ORDER_TIME_SPECIFIED,
-                  expiration,
-                  "SELL_TENDENCY_MARTINGALE_" + config.label
-               );
-            }
+         double body30Perc = (points * percent);
+         datetime expiration = TimeCurrent() + (config.tfSeconds / 2);
+        // sl = calcPrice(sl, body30Perc);
+         
+         if (type == BUY) {
+            double limitPrice = calcPrice(precoAtual, -body30Perc);
+            trade.BuyLimit(
+               NormalizeVolume(volume), // volume
+               NormalizeDouble(limitPrice, _Digits),                 // preço da ordem
+               _Symbol,
+               NormalizeDouble(sl, _Digits),
+               NormalizeDouble(tp, _Digits),
+               ORDER_TIME_SPECIFIED,
+               expiration,
+               "BUY_TENDENCY_MARTINGALE_"  + config.label
+            );
+         } else if (type == SELL) {
+            double limitPrice = calcPrice(precoAtual, body30Perc);
+            trade.SellLimit(
+               NormalizeVolume(volume), // volume
+               NormalizeDouble(limitPrice, _Digits),                 // preço da ordem
+               _Symbol,
+               NormalizeDouble(sl, _Digits),
+               NormalizeDouble(tp, _Digits),
+               ORDER_TIME_SPECIFIED,
+               expiration,
+               "SELL_TENDENCY_MARTINGALE_" + config.label
+            );
          }
-         percent -= 0.10;
+         percent -= percentReduction;
       }
    }
 }

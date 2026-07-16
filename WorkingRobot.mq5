@@ -632,11 +632,13 @@ void MoveStopPorPontos()
       double pontosEntrada = calcPoints(entry, currentPrice);
       double pontosProtecao = pontosMove * percentualMoveStop / 100;
       if (profit > 0) {
-         string comentario =   PositionGetString(POSITION_COMMENT);
-         ENUM_TIMEFRAMES tf = getTfByComment(comentario);
-   
-         if(tf != PERIOD_MN1)  {
-            totalPeriodos++;
+         if(ENABLE_MULTI_ROBOTS_IN_PROFIT){
+            string comentario =   PositionGetString(POSITION_COMMENT);
+            ENUM_TIMEFRAMES tf = getTfByComment(comentario);
+      
+            if(tf != PERIOD_MN1)  {
+               totalPeriodos++;
+            }
          }
          
          double percentProtenction = MOVE_STOP_PROTECTION_PERCENTUAL / 100;

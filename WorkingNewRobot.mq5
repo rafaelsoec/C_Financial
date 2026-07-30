@@ -175,8 +175,8 @@ MqlTick tick;
 int countOrders = 0;
 bool countCycles = false, waitNewCandleMultRobot = false, waitNewCandleMartingalle = false;
 int MIN_COUNT_CANDIDATE_CANDLE = 5, BUY_COUNT = 0, SELL_COUNT = 0;
-ENUM_TIMEFRAMES tfs[] = { PERIOD_M10, PERIOD_M15, PERIOD_M20, PERIOD_M30, PERIOD_H1};
-//---ENUM_TIMEFRAMES tfs[] = { PERIOD_M10 };
+//---ENUM_TIMEFRAMES tfs[] = { PERIOD_M10, PERIOD_M15, PERIOD_M20, PERIOD_M30, PERIOD_H1};
+ENUM_TIMEFRAMES tfs[] = { PERIOD_M10 };
 bool MAX_LOSS_ATINGIDO = false, BLOCK_BUYS = false, BLOCK_SELLS = false;
 
 //
@@ -489,10 +489,11 @@ void OnTick() {
 
       //double volatility = GetVolatilityPercent(configs[i], 3);
       //bool isVolatil =  volatility  > 1;
-      int secondsTfAtual = TimeframeToSeconds(configs[i].tf);
-      int secondsTfLimiteInf = TimeframeToSeconds(PERIOD_M15);
-      int secondsTfLimiteSup = TimeframeToSeconds(PERIOD_H1);
-      if (ENABLE_SHORT_TENDENCY &&  secondsTfAtual > secondsTfLimiteInf && secondsTfAtual <= secondsTfLimiteSup) {
+     // int secondsTfAtual = TimeframeToSeconds(configs[i].tf);
+      //int secondsTfLimiteInf = TimeframeToSeconds(PERIOD_M15);
+     // int secondsTfLimiteSup = TimeframeToSeconds(PERIOD_H1);
+      //&&  secondsTfAtual > secondsTfLimiteInf && secondsTfAtual <= secondsTfLimiteSup
+      if (ENABLE_SHORT_TENDENCY ) {
        // VolumeLevel volumeLevel = GetVolumeLevel(configs[i].tf, true);
         //if (isVolatil) {
             VerifyShortTendency(configs[i]);
@@ -1407,9 +1408,7 @@ void VerifyEngolfo(TimeframeConfig &config) {
    }
 }
 
-
 //+------------------------------------------------------------------+
-
 void VerifyShortTendency(TimeframeConfig &config) {
     int index = 1;
     
@@ -1432,17 +1431,17 @@ void VerifyShortTendency(TimeframeConfig &config) {
    double newVolume = NormalizeVolume(ENABLE_TIMEFRAME_MULTIPLIER ? VOLUME * config.multiplier : VOLUME);
    bool diff = MathAbs(config.adx[1] - config.adx[2])  > 10;
    
-   if (IsBullish(candles[2]) && IsBullish(candles[1])) {
+   if (IsBullish(candles[3]) && IsBullish(candles[2]) && IsBullish(candles[1])) {
       config.actualTendency = BUY;
-   } else if (IsBearish(candles[2]) && IsBearish(candles[1])) {
+   } else if (IsBearish(candles[3]) && IsBearish(candles[2]) && IsBearish(candles[1])) {
       config.actualTendency = SELL;
    }  else {
       config.actualTendency = NONE;
    }
    
-   if(config.actualTendency == SELL ){
+   if(config.actualTendency == SELL && diff && config.cci[0] > -CCI_MAX){
    //candles[2].close > candles[1].close && candles[2].high > candles[1].high
-      if (1 == 1) {
+      if (candles[2].close > candles[1].close && candles[1].close > candles[0].close  && config.adx[2] > config.adx[1] ) {
          config.actualTendency = SELL;
          double sl = candles[2].high;
          double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
@@ -1466,8 +1465,8 @@ void VerifyShortTendency(TimeframeConfig &config) {
             }
          }
       }
-   } else  if(config.actualTendency == BUY ){
-      if (1 == 1) {
+   } else  if(config.actualTendency == BUY  && diff && config.cci[0] < CCI_MAX){
+      if (candles[2].close < candles[1].close && candles[1].close < candles[0].close  && config.adx[1] > config.adx[2] ) {
       //candles[2].close < candles[1].close && candles[2].low < candles[1].low
          config.actualTendency = BUY;
          double sl = candles[2].low;

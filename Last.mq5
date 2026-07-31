@@ -75,7 +75,7 @@ enum LEVEL{
    L3
  };
  
-enum TYPE_NEGOCIATION{
+enum TypeNegotiation{
    BUY,
    SELL,
    NONE
@@ -111,14 +111,14 @@ struct TimeframeConfig
    double movingAverage[15];
    double adx[15];
    double cci[15];
-   TYPE_NEGOCIATION signalReversao;
-   TYPE_NEGOCIATION signalTendencia;
-   TYPE_NEGOCIATION actualTendency;
+   TypeNegotiation signalReversao;
+   TypeNegotiation signalTendencia;
+   TypeNegotiation actualTendency;
    string label;
    MqlRates candleCandidate;
    MqlRates lastCandleCandidate;
    int candleCandidateCounter;
-   TYPE_NEGOCIATION candleCandidateTendency;
+   TypeNegotiation candleCandidateTendency;
 };
 
 struct MaximosMinimos
@@ -160,7 +160,7 @@ input bool IS_TEST = false;
  bool DISABLED_LATERAL_MARKET_VALIDATIONS = true;
 input bool ENABLE_SWING_TRADE = false;
  bool ENABLE_MOVE_TAKE = true;
-double CCI_MAX = 180;
+double CCI_MAX = 200;
 
  int NUMBER_MAX_ROBOT_BY_TIMEFRAME = 3;
  
@@ -489,10 +489,12 @@ void OnTick() {
 
       //double volatility = GetVolatilityPercent(configs[i], 3);
       //bool isVolatil =  volatility  > 1;
-      int secondsTfAtual = TimeframeToSeconds(configs[i].tf);
-      int secondsTfLimiteInf = TimeframeToSeconds(PERIOD_M15);
-      int secondsTfLimiteSup = TimeframeToSeconds(PERIOD_H1);
-      if (ENABLE_SHORT_TENDENCY &&  secondsTfAtual > secondsTfLimiteInf && secondsTfAtual <= secondsTfLimiteSup) {
+     // int secondsTfAtual = TimeframeToSeconds(configs[i].tf);
+      //int secondsTfLimiteInf = TimeframeToSeconds(PERIOD_M15);
+     // int secondsTfLimiteSup = TimeframeToSeconds(PERIOD_H1);
+      //&&  secondsTfAtual > secondsTfLimiteInf && secondsTfAtual <= secondsTfLimiteSup
+     
+      if (ENABLE_SHORT_TENDENCY ) {
        // VolumeLevel volumeLevel = GetVolumeLevel(configs[i].tf, true);
         //if (isVolatil) {
             VerifyShortTendency(configs[i]);
@@ -1432,15 +1434,16 @@ void VerifyShortTendency(TimeframeConfig &config) {
    
    if (IsBullish(candles[2]) && IsBullish(candles[1])) {
       config.actualTendency = BUY;
-   } else if (IsBearish(candles[2]) && IsBearish(candles[1])) {
+   } else if ( IsBearish(candles[2]) && IsBearish(candles[1])) {
       config.actualTendency = SELL;
    }  else {
       config.actualTendency = NONE;
    }
    
-   if(config.actualTendency == SELL ){
-   //candles[2].close > candles[1].close && candles[2].high > candles[1].high
-      if (candles[2].close > candles[1].close && candles[2].high > candles[1].high && candles[1].close > candles[0].close) {
+   if(config.actualTendency == SELL && diff && config.cci[0] < CCI_MAX){
+      TypeNegotiation macd=  GetTrendMACD(config);
+   //candles[2].close > candles[1].close && candles[1].close > candles[0].close  && config.adx[2] > config.adx[1] 
+      if (macd == SELL) {
          config.actualTendency = SELL;
          double sl = candles[2].high;
          double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
@@ -1464,8 +1467,10 @@ void VerifyShortTendency(TimeframeConfig &config) {
             }
          }
       }
-   } else  if(config.actualTendency == BUY ){
-      if (candles[2].close < candles[1].close && candles[2].low < candles[1].low && candles[1].close < candles[0].close) {
+   } else  if(config.actualTendency == BUY  && diff && config.cci[0] < CCI_MAX){
+      TypeNegotiation macd=  GetTrendMACD(config);
+   // candles[2].close < candles[1].close && candles[1].close < candles[0].close  && config.adx[1] > config.adx[2] 
+      if (macd == BUY) {
       //candles[2].close < candles[1].close && candles[2].low < candles[1].low
          config.actualTendency = BUY;
          double sl = candles[2].low;
@@ -1589,7 +1594,7 @@ void VerifyTendency(TimeframeConfig &config) {
    }
 }
 
-void ExecuteMartingale(TimeframeConfig &config, TYPE_NEGOCIATION type, double points, double precoAtual, double volume, double sl, double tp, double percentReduction) { 
+void ExecuteMartingale(TimeframeConfig &config, TypeNegotiation type, double points, double precoAtual, double volume, double sl, double tp, double percentReduction) { 
    if (ENABLE_MARTINGALLE) {
       double percent = 0.5;
       while (percent > 0) {
@@ -1677,7 +1682,7 @@ double GetAverageValue(double& indicator[], int qtdItems) {
    return val / qtdItems;
 }
 
-bool IsIndicatorTendency(double& indicator[], TYPE_NEGOCIATION type, int qtdItems) {
+bool IsIndicatorTendency(double& indicator[], TypeNegotiation type, int qtdItems) {
    int buy = 0, sell = 0;
    if (ArraySize(indicator) < qtdItems) {
       return false;
@@ -1814,7 +1819,7 @@ double getBodyOrWick(MqlRates &candle, bool body) {
 //+------------------------------------------------------------------+
 
 //+------------------------------------------------------------------+
-double getCandleBodies(int start, int end, TYPE_NEGOCIATION type) {
+double getCandleBodies(int start, int end, TypeNegotiation type) {
    double bearishBody = 0;
    double bullishBody = 0;
    
@@ -2270,4 +2275,178 @@ VOLATILITY GetVolatilityLevel(TimeframeConfig &config, int numCandles = 100){
       return HIGH;
 
    return VERY_HIGH;
+}
+
+TypeNegotiation GetTrendEMA(TimeframeConfig &config, int fast = 20, int slow = 50) {
+   int fastHandle = iMA(_Symbol,config.tf,fast,0,MODE_EMA,PRICE_CLOSE);
+   int slowHandle = iMA(_Symbol,config.tf,slow,0,MODE_EMA,PRICE_CLOSE);
+
+   double fastEMA[2];
+   double slowEMA[2];
+
+   CopyBuffer(fastHandle,0,0,2,fastEMA);
+   CopyBuffer(slowHandle,0,0,2,slowEMA);
+
+   IndicatorRelease(fastHandle);
+   IndicatorRelease(slowHandle);
+
+   bool crossedUp =
+      fastEMA[1] < slowEMA[1] &&
+      fastEMA[0] > slowEMA[0];
+
+   bool crossedDown =
+      fastEMA[1] > slowEMA[1] &&
+      fastEMA[0] < slowEMA[0];
+
+   if(crossedUp)
+      return BUY;
+
+   if(crossedDown)
+      return SELL;
+
+   return NONE;
+}
+
+TypeNegotiation GetTrendMACD(TimeframeConfig &config, int lookback = 5) {
+   int handle = iMACD(_Symbol, config.tf, 12, 26, 9, PRICE_CLOSE);
+
+   if(handle == INVALID_HANDLE)
+      return NONE;
+
+   double macd[];
+   double signal[];
+
+   ArraySetAsSeries(macd, true);
+   ArraySetAsSeries(signal, true);
+
+   // Apenas candles fechados
+   if(CopyBuffer(handle, 0, 1, lookback, macd) <= 0)
+   {
+      IndicatorRelease(handle);
+      return NONE;
+   }
+
+   if(CopyBuffer(handle, 1, 1, lookback, signal) <= 0)
+   {
+      IndicatorRelease(handle);
+      return NONE;
+   }
+
+   IndicatorRelease(handle);
+
+   bool histogramIncreasing = true;
+   bool histogramDecreasing = true;
+
+   bool macdIncreasing = true;
+   bool macdDecreasing = true;
+
+   for(int i = lookback - 1; i > 0; i--)
+   {
+      double histOld = macd[i] - signal[i];
+      double histNew = macd[i-1] - signal[i-1];
+
+      if(histNew <= histOld)
+         histogramIncreasing = false;
+
+      if(histNew >= histOld)
+         histogramDecreasing = false;
+
+      if(macd[i-1] <= macd[i])
+         macdIncreasing = false;
+
+      if(macd[i-1] >= macd[i])
+         macdDecreasing = false;
+   }
+
+   double lastHist = macd[0] - signal[0];
+
+   //------------------------
+   // COMPRA
+   //------------------------
+
+   if(macd[0] > 0 &&
+      macd[0] > signal[0] &&
+      lastHist > 0 &&
+      histogramIncreasing &&
+      macdIncreasing)
+   {
+      return BUY;
+   }
+
+   //------------------------
+   // VENDA
+   //------------------------
+
+   if(macd[0] < 0 &&
+      macd[0] < signal[0] &&
+      lastHist < 0 &&
+      histogramDecreasing &&
+      macdDecreasing)
+   {
+      return SELL;
+   }
+
+   return NONE;
+}
+
+TypeNegotiation GetTrendRSI(TimeframeConfig &config) {
+   int handle=iRSI(_Symbol, config.tf,14,PRICE_CLOSE);
+
+   double rsi[2];
+
+   CopyBuffer(handle,0,0,2,rsi);
+
+   IndicatorRelease(handle);
+
+   if(rsi[1] < 50 &&
+      rsi[0] > 50)
+      return BUY;
+
+   if(rsi[1] > 50 &&
+      rsi[0] < 50)
+      return SELL;
+
+   return NONE;
+}
+
+TypeNegotiation GetTrendVolume() {
+   int avgPeriod = QTD_CANDLES;
+   double avgVolume=0;
+
+   for(int i=1;i<=avgPeriod;i++)
+      avgVolume+=(double)candles[i].tick_volume;
+
+   avgVolume/=avgPeriod;
+
+   if(candles[0].tick_volume < avgVolume)
+      return NONE;
+
+   if(candles[0].close > candles[1].high)
+      return BUY;
+
+   if(candles[0].close < candles[1].low)
+      return SELL;
+
+   return NONE;
+}
+
+TypeNegotiation GetTrendATR(TimeframeConfig &config){
+   int avgPeriod = QTD_CANDLES;
+
+   double avg=0;
+   for(int i=1;i<=avgPeriod;i++)
+      avg+=config.atr[i];
+
+   avg/=avgPeriod;
+
+   if(config.atr[0] <= avg)
+      return NONE;
+
+   if(candles[0].close > candles[1].high)
+      return BUY;
+
+   if(candles[0].close < candles[1].low)
+      return SELL;
+
+   return NONE;
 }

@@ -213,8 +213,8 @@ void showComments(){
          " Total de posições ativas: ", (PositionsTotal()), 
          " Saldo: ", DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE) + profit, 2),
          " Lucro Atual: ", DoubleToString(profit, 2),
-         " Tempo de Candle: ", transformarCandleTime(),
-         " Contadores: ", getContadores(),
+         " Tempo de Candle: ", transformarCandleTime(), "\n",
+         " Contadores: ", getContadores(), "\n",
          " Tendencias: ", getTendenciaMacro()
          );
 }
@@ -507,13 +507,15 @@ void OnTick() {
       if (MOVE_STOP == MOVE_STOP_TRAIL) {
          MoveStopByATR(configs[i]);
       } 
-
-      //double volatility = GetVolatilityPercent(configs[i], 3);
-      //bool isVolatil =  volatility  > 1;
-     // int secondsTfAtual = TimeframeToSeconds(configs[i].tf);
-      //int secondsTfLimiteInf = TimeframeToSeconds(PERIOD_M15);
-     // int secondsTfLimiteSup = TimeframeToSeconds(PERIOD_H1);
-      //&&  secondsTfAtual > secondsTfLimiteInf && secondsTfAtual <= secondsTfLimiteSup
+      
+      if(ENABLE_ENGOLFO) {
+         VerifyEngolfo(configs[i]);
+      } 
+     
+      double tendenciaExtrapolada = IsTrendSaturated(configs[i], candles[0].close);
+      if (tendenciaExtrapolada == 0) {
+         return;
+      }
      
       if (ENABLE_SHORT_TENDENCY ) {
           VerifyShortTendency(configs[i]);
@@ -553,12 +555,6 @@ void OnTick() {
                VerifyTendency(configs[i]);
          //  }
          }
-      
-         if(ENABLE_ENGOLFO) {
-          //  if (isVolatil) {
-               VerifyEngolfo(configs[i]);
-           //}
-         }  /**/
       }  
    }
 } 
@@ -1451,7 +1447,7 @@ void VerifyEngolfo(TimeframeConfig &config) {
          double tpBuy = calcPrice(maxMin.high, points);
          if ((lastPoints > secLastPoints * ACCEPTABLE_CANDLE_BODY_PERCENTUAL / 100)) {
             config.waitNewCandleEngolfo = true;
-            if (config.movingAverage[0] > precoAtual && config.movingAverage[1] > precoAtual && config.movingAverage[2] > precoAtual 
+            if (config.movingAverage[1] > precoAtual && config.movingAverage[2] > precoAtual 
                // && config.adxMinus[0] > config.adxPlus[0]
                  ) {
                drawVerticalLine(candles[0].time, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL_ENGOLFO" + FormatDateToString(candles[0].time), clrRed);
@@ -1468,7 +1464,7 @@ void VerifyEngolfo(TimeframeConfig &config) {
                   "SELL_ENGOLFO_TENDENCY_"  + config.label
                );
             }
-            if (config.movingAverage[0] < precoAtual && config.movingAverage[1] < precoAtual && config.movingAverage[2] < precoAtual 
+            if (config.movingAverage[1] < precoAtual && config.movingAverage[2] < precoAtual 
                 //&& config.adxMinus[0] < config.adxPlus[0] 
                 ) {
                config.maxRobotsEngolfo--;

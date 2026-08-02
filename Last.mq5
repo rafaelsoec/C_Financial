@@ -1544,7 +1544,7 @@ void VerifyShortTendency(TimeframeConfig &config) {
    double precoAtual = candles[0].close;
    double minAnterior = candles[1].open;
    double newVolume = NormalizeVolume(ENABLE_TIMEFRAME_MULTIPLIER ? VOLUME * config.multiplier : VOLUME);
-   bool diff = MathAbs(config.adx[1] - config.adx[2])  > 10;
+   bool diff = MathAbs(config.adxMinus[0] - config.adxPlus[0])  > 10;
    
    if (IsBullish(candles[2]) && IsBullish(candles[1])) {
       config.actualTendency = BUY;
@@ -1554,10 +1554,10 @@ void VerifyShortTendency(TimeframeConfig &config) {
       config.actualTendency = NONE;
    }
    
-   if(config.actualTendency == SELL && diff && config.cci[0] < CCI_MAX){
+   if(config.actualTendency == SELL && diff && config.cci[0] > -CCI_MAX){
    // TypeNegotiation macd=  GetTrendMACD(config);
    //candles[2].close > candles[1].close && candles[1].close > candles[0].close  && config.adx[2] > config.adx[1] 
-      if (1 == 1) {
+      if (config.movingAverage[0] > precoAtual && config.movingAverage[1] > precoAtual && config.movingAverage[2] > precoAtual ) {
          config.actualTendency = SELL;
          double sl = candles[2].high;
          double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
@@ -1584,7 +1584,7 @@ void VerifyShortTendency(TimeframeConfig &config) {
    } else  if(config.actualTendency == BUY  && diff && config.cci[0] < CCI_MAX){
       //TypeNegotiation macd=  GetTrendMACD(config);
    // candles[2].close < candles[1].close && candles[1].close < candles[0].close  && config.adx[1] > config.adx[2] 
-      if (1 == 1) {
+      if (config.movingAverage[0] < precoAtual && config.movingAverage[1] < precoAtual && config.movingAverage[2] < precoAtual ) {
       //candles[2].close < candles[1].close && candles[2].low < candles[1].low
          config.actualTendency = BUY;
          double sl = candles[2].low;
@@ -1628,7 +1628,7 @@ void VerifyTendency(TimeframeConfig &config) {
       
    //int min = MathRound((double)QTD_CANDLES / 2.0);
    int initialTendency = getCandleTendecy(index, QTD_CANDLES, MIN_CANDLES_IN_TREND, false, ACCEPTABLE_CANDLE_BODY_PERCENTUAL);
-   datetime actualTime = candles[index].time;
+   datetime actualTime = TimeCurrent();
    double precoAtual = candles[0].close;
    double newVolume = NormalizeVolume(ENABLE_TIMEFRAME_MULTIPLIER ? VOLUME * config.multiplier : VOLUME);
    bool diff =  MathAbs(config.adxPlus[0] - config.adxMinus[0])  > 10;

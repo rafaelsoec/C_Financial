@@ -963,18 +963,18 @@ bool CheckDailyMaxLoss(double percentLossPerDay, string log_prefix = "") {
     double max_loss_dollars = percentLossPerDay;
     
     // Calcula perda do dia (todas posições)
-    double profit = AccountInfoDouble(ACCOUNT_PROFIT);
-    if (profit < 0) {
+   // double profit = AccountInfoDouble(ACCOUNT_PROFIT);
+    //if (profit < 0) {
        double daily_loss = AccountInfoDouble(ACCOUNT_BALANCE) -  BALANCE;
-       if(profit <= -max_loss_dollars || (daily_loss < 0 && daily_loss <= -max_loss_dollars)) {
+       if((daily_loss < 0 && daily_loss <= -max_loss_dollars)) {
            MAX_LOSS_ATINGIDO = true;
            if(log_prefix != "") {
                Print(log_prefix, "? MAX LOSS DIÁRIO ATINGIDO! $", 
-                     DoubleToString(MathAbs(profit), 2), "/", max_loss_dollars);
+                     DoubleToString(MathAbs(daily_loss), 2), "/", max_loss_dollars);
            }
            return false;  // Pare de operar
        }
-    }
+  //  }
     return true;  // Pode operar
 }
 
@@ -1511,7 +1511,7 @@ void VerifyAverage(TimeframeConfig &config) {
       && config.movingAverage50[0] > precoAtual) {
       config.actualTendency = SELL;
       double sl = candles[1].high;
-      double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
+      double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP * 1.5;
       double tp = NormalizeDouble(calcPrice(precoAtual, -diff), _Digits);
       
       if (!DISABLED_NEGOTIATIONS) {
@@ -1540,7 +1540,7 @@ void VerifyAverage(TimeframeConfig &config) {
       && config.movingAverage50[0] < precoAtual) {
       config.actualTendency = BUY;
       double sl = candles[1].low;
-      double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
+      double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP * 1.5;
       double tp = NormalizeDouble(calcPrice(precoAtual, diff), _Digits);
       
       if (!DISABLED_NEGOTIATIONS ) {
@@ -1567,6 +1567,7 @@ void VerifyAverage(TimeframeConfig &config) {
 void VerifyCruzamento(TimeframeConfig &config) {
    double precoAtual = candles[0].close;
    double newVolume = NormalizeVolume(ENABLE_TIMEFRAME_MULTIPLIER ? VOLUME * config.multiplier : VOLUME);
+   bool diff = MathAbs(config.adxMinus[2] - config.adxPlus[2])  > 10;
    datetime actualTime = TimeCurrent();
     
    if(config.maxRobotsCrossTendency < 0) {
@@ -1581,7 +1582,7 @@ void VerifyCruzamento(TimeframeConfig &config) {
       return;
    }
    
-   if(config.adxMinusTendency != NONE && config.adxPlusTendency != NONE && config.adxMinusTendency != config.adxPlusTendency) {
+   if(config.adxMinusTendency != NONE  && config.adxPlusTendency != NONE && config.adxMinusTendency != config.adxPlusTendency) {
       if (IsBearish(candles[0]) 
             && config.adxMinusTendency == BUY
            // && config.adxMinus[0] <  config.adx[0]

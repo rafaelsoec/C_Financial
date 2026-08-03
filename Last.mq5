@@ -1584,12 +1584,13 @@ void VerifyCruzamento(TimeframeConfig &config) {
    if(config.adxMinusTendency != NONE && config.adxPlusTendency != NONE && config.adxMinusTendency != config.adxPlusTendency) {
       if (IsBearish(candles[0]) 
             && config.adxMinusTendency == BUY
+           // && config.adxMinus[0] <  config.adx[0]
             && config.adxMinus[0] > config.adxPlus[0] 
             && config.adxMinus[4] < config.adxPlus[4]
             && ((config.movingAverage21[0] > precoAtual && config.movingAverage[2] > precoAtual) || (config.movingAverage50[0] > precoAtual && config.movingAverage[2] > precoAtual))) {
          config.actualTendency = SELL;
          double sl = candles[2].high;
-         double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
+         double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP * 1.5;
          double tp = NormalizeDouble(calcPrice(precoAtual, -diff), _Digits);
          
          if (!DISABLED_NEGOTIATIONS) {
@@ -1614,12 +1615,13 @@ void VerifyCruzamento(TimeframeConfig &config) {
       
       if (IsBullish(candles[0]) 
             && config.adxMinusTendency == SELL
+          //  && config.adxPlus[0] <  config.adx[0]
             && config.adxMinus[0] < config.adxPlus[0] 
             && config.adxMinus[4] > config.adxPlus[4]
             && ((config.movingAverage21[0] < precoAtual && config.movingAverage[2] < precoAtual) || (config.movingAverage50[0] < precoAtual && config.movingAverage[2] < precoAtual))) {
          config.actualTendency = BUY;
          double sl = candles[2].low;
-         double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
+         double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP * 1.5;
          double tp = NormalizeDouble(calcPrice(precoAtual, diff), _Digits);
          
          if (!DISABLED_NEGOTIATIONS ) {

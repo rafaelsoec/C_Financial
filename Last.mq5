@@ -194,7 +194,7 @@ MqlTick tick;
 int countOrders = 0;
 bool countCycles = false, waitNewCandleMultRobot = false, waitNewCandleMartingalle = false;
 int MIN_COUNT_CANDIDATE_CANDLE = 5, BUY_COUNT = 0, SELL_COUNT = 0;
-ENUM_TIMEFRAMES tfs[] = { PERIOD_M10, PERIOD_M15, PERIOD_M20, PERIOD_M30, PERIOD_H1};
+ENUM_TIMEFRAMES tfs[] = { PERIOD_M5, PERIOD_M10, PERIOD_M15, PERIOD_M20, PERIOD_M30, PERIOD_H1};
 //---ENUM_TIMEFRAMES tfs[] = { PERIOD_M10 };
 bool MAX_LOSS_ATINGIDO = false, BLOCK_BUYS = false, BLOCK_SELLS = false;
 
@@ -429,8 +429,16 @@ void OnTick() {
    if(HasNewCandle(PERIOD_M5)) {
       waitNewCandleMultRobot = false;
       waitNewCandleMartingalle = false;
-      //for(int i = 0; i < ArraySize(configs); i++)  {
-      //}
+      if(!ENABLE_SWING_TRADE){
+         if(!IsMarketOpenNow(40)){
+            printf("%s Mercado fechado!", _Symbol);
+            closeAll();
+            return; 
+         }
+      }
+      
+      COUNTER_PROFIT = 0;
+      COUNTER_LOSS = 0;
    }
    
    if(!IS_TEST) {
@@ -439,19 +447,6 @@ void OnTick() {
            printf("Perda maxima atingida.");
            closeAll();
            return;  
-      }
-   
-      if(HasNewCandle(PERIOD_M10)) {
-         if(!ENABLE_SWING_TRADE){
-            if(!IsMarketOpenNow(30)){
-               printf("%s Mercado fechado!", _Symbol);
-               closeAll();
-               return; 
-            }
-         }
-         
-         COUNTER_PROFIT = 0;
-         COUNTER_LOSS = 0;
       }
    }
   
@@ -499,18 +494,18 @@ void OnTick() {
       resetUnitRobots(configs[i].maxRobotsCrossTendency);
       resetUnitRobots(configs[i].maxRobotsAverageTendency);
       resetUnitRobots(configs[i].maxRobotsReversalTendency);
-   
-      if (MOVE_STOP != MOVE_STOP_NONE) {
+        
+      if(ENABLE_ENGOLFO) {
+         VerifyEngolfo(configs[i]);
+      } 
+      
+      if (MOVE_STOP != MOVE_STOP_NONE && isOperableTimeframe(configs[i].tf)) {
          if (MOVE_STOP == MOVE_STOP_TRAIL) {
             MoveStopByATR(configs[i]);
          } else {
             MoveStopPorPontos(configs[i]);
          }
       }
-        
-      if(ENABLE_ENGOLFO) {
-         VerifyEngolfo(configs[i]);
-      } 
      
       double tendenciaExtrapolada = IsTrendSaturated(configs[i], candles[0].close);
       if (tendenciaExtrapolada == 0) {
@@ -534,7 +529,8 @@ void OnTick() {
       }
       
       
-      if(IsNewBar(configs[i])) {
+      if(IsNewBar(configs[i]) && !isOperableTimeframe(configs[i].tf)) {
+         
          configs[i].waitNewCandle = false;
          configs[i].waitNewCandleEngolfo = false;
          configs[i].waitNewCandleHighRisk = false;
@@ -565,6 +561,9 @@ void OnTick() {
    }
 } 
 
+bool isOperableTimeframe(ENUM_TIMEFRAMES timeframe) {
+   return timeframe == PERIOD_M5;
+}
 
 void resetCounters(int &value[]) {
    for (int i = 0; i < ArraySize(value); i++) {
@@ -712,13 +711,13 @@ void MoveStopPorPontos(TimeframeConfig &config)
          double percentProtenction = MOVE_STOP_PROTECTION_PERCENTUAL / 100;
          if(type == POSITION_TYPE_BUY ) {
             BUY_COUNT++;
-            if (entry > slAtual || slAtual == 0) {
+            if (entry > slAtual || slAtual == 0 || DetectReversal(config, BUY)) {
                if (tpAtual == 0) {
                   tpAtual = calcPrice(currentPrice, 1000);
                   pontosMove = 1000 * percentualMoveStop / 100;
                }
                
-               if (pontosEntrada > pontosMove ||  DetectReversal(config, BUY)) {
+               if (pontosEntrada > pontosMove) {
                   novoSL = NormalizeDouble(entry + (pontosProtecao * percentProtenction * point),  _Digits);
                   if(trade.PositionModify(ticket, novoSL, tpAtual))
                      Print("Stop movido - Protecao - ", entry, " - BUY");
@@ -745,13 +744,13 @@ void MoveStopPorPontos(TimeframeConfig &config)
    
          if(type == POSITION_TYPE_SELL) {
             SELL_COUNT++;
-            if (entry < slAtual || slAtual == 0) {
+            if (entry < slAtual || slAtual == 0  || DetectReversal(config, SELL)) {
                if (tpAtual == 0) {
                   tpAtual = calcPrice(currentPrice, -1000);
                   pontosMove = 1000 * percentualMoveStop / 100;
                }
                
-               if (pontosEntrada > pontosMove || DetectReversal(config, SELL)) {
+               if (pontosEntrada > pontosMove) {
                   novoSL = NormalizeDouble(entry - (pontosProtecao  *  percentProtenction * point),  _Digits);
                   if(trade.PositionModify(ticket, novoSL, tpAtual))
                      Print("Stop movido - Protecao - ", entry, " - SELL");
@@ -1506,7 +1505,7 @@ void VerifyReversalTendency(TimeframeConfig &config) {
    
    if (DetectReversal(config, SELL)) {
       config.actualTendency = SELL;
-      double sl = candles[2].high;
+      double sl = candles[1].high;
       double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
       double tp = NormalizeDouble(calcPrice(precoAtual, -diff), _Digits);
       
@@ -1530,7 +1529,7 @@ void VerifyReversalTendency(TimeframeConfig &config) {
       }
    } else if (DetectReversal(config, BUY)) {
       config.actualTendency = BUY;
-      double sl = candles[2].low;
+      double sl = candles[1].low;
       double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
       double tp = NormalizeDouble(calcPrice(precoAtual, diff), _Digits);
       

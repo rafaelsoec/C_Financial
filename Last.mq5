@@ -444,7 +444,7 @@ void OnTick() {
    
    if(!IS_TEST) {
       showComments();
-      if(!CheckDailyMaxLoss(LOSS_PER_DAY, "USD ")) {
+      if(CheckDailyMaxLoss(BALANCE, LOSS_PER_DAY, "USD ")) {
            printf("Perda maxima atingida.");
            closeAll();
            return;  
@@ -958,30 +958,31 @@ bool IsNewBar(TimeframeConfig &config) {
    return false;
 }
 
-bool CheckDailyMaxLoss(double percentLossPerDay, string log_prefix = "") {
-    if(MAX_LOSS_ATINGIDO) {
+//+------------------------------------------------------------------+
+//| Verifica se o loss diário foi atingido                           |
+//| balanceInicioDia : Balance no início do dia                      |
+//| maxLoss          : Valor máximo de perda (em dinheiro)           |
+//+------------------------------------------------------------------+
+bool CheckDailyMaxLoss(double balanceInicioDia, double maxLoss, string log_prefix = "") {  
+   if(maxLoss <= 0) {
        return false;
-    }
-    
-    if(percentLossPerDay <= 0) {
+   }
+   
+   if(MAX_LOSS_ATINGIDO) {
        return true;
-    }
-    double max_loss_dollars = percentLossPerDay;
-    
-    // Calcula perda do dia (todas posições)
-   // double profit = AccountInfoDouble(ACCOUNT_PROFIT);
-    //if (profit < 0) {
-       double daily_loss = AccountInfoDouble(ACCOUNT_BALANCE) -  BALANCE;
-       if((daily_loss < 0 && daily_loss <= -max_loss_dollars)) {
-           MAX_LOSS_ATINGIDO = true;
-           if(log_prefix != "") {
-               Print(log_prefix, "? MAX LOSS DIÁRIO ATINGIDO! $", 
-                     DoubleToString(MathAbs(daily_loss), 2), "/", max_loss_dollars);
-           }
-           return false;  // Pare de operar
-       }
-  //  }
-    return true;  // Pode operar
+   }
+   
+   double balanceAtual = AccountInfoDouble(ACCOUNT_BALANCE);
+
+   double perda = balanceInicioDia - balanceAtual;
+
+   if(perda >= maxLoss) {
+      Print(log_prefix, "? MAX LOSS DIÁRIO ATINGIDO! $", 
+            DoubleToString(MathAbs(perda), 2), "/", maxLoss);
+      return true;
+   }
+
+   return false;
 }
 
 bool IsMarketOpenNow(int minutos = 0){

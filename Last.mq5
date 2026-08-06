@@ -165,7 +165,7 @@ input double PROPORTION_TAKE_STOP = 2;
   bool ENABLE_MARTINGALLE = false;
  input bool ENABLE_MULTI_ROBOTS_IN_PROFIT = true;
 input bool ENABLE_TIMEFRAME_MULTIPLIER = true;
- input bool ENABLE_CLOSE_IN_LOSS = false;
+  bool ENABLE_CLOSE_IN_LOSS = false;
  bool ENABLE_SATURDAY = false;
  bool ENABLE_MONDAY = false;
  bool IGNORE_MAGIC_NUMBER = true;
@@ -426,6 +426,7 @@ void OnTick() {
       resetCounters(COUNT_NEGOTIATIONS);
    }
    
+   
    if(HasNewCandle(PERIOD_M5)) {
       waitNewCandleMultRobot = false;
       waitNewCandleMartingalle = false;
@@ -447,6 +448,11 @@ void OnTick() {
            printf("Perda maxima atingida.");
            closeAll();
            return;  
+      }
+   
+      if(ExisteNoticia("USD", 30, 30)) {
+           printf("Existem noticias para o Dolar.");
+           return; 
       }
    }
   
@@ -711,13 +717,13 @@ void MoveStopPorPontos(TimeframeConfig &config)
          double percentProtenction = MOVE_STOP_PROTECTION_PERCENTUAL / 100;
          if(type == POSITION_TYPE_BUY ) {
             BUY_COUNT++;
-            if (entry > slAtual || slAtual == 0 || DetectReversal(config, BUY)) {
+            if (entry > slAtual || slAtual == 0 ) {
                if (tpAtual == 0) {
                   tpAtual = calcPrice(currentPrice, 1000);
                   pontosMove = 1000 * percentualMoveStop / 100;
                }
                
-               if (pontosEntrada > pontosMove) {
+               if (pontosEntrada > pontosMove || DetectReversal(config, BUY)) {
                   novoSL = NormalizeDouble(entry + (pontosProtecao * percentProtenction * point),  _Digits);
                   if(trade.PositionModify(ticket, novoSL, tpAtual))
                      Print("Stop movido - Protecao - ", entry, " - BUY");
@@ -744,13 +750,13 @@ void MoveStopPorPontos(TimeframeConfig &config)
    
          if(type == POSITION_TYPE_SELL) {
             SELL_COUNT++;
-            if (entry < slAtual || slAtual == 0  || DetectReversal(config, SELL)) {
+            if (entry < slAtual || slAtual == 0 ) {
                if (tpAtual == 0) {
                   tpAtual = calcPrice(currentPrice, -1000);
                   pontosMove = 1000 * percentualMoveStop / 100;
                }
                
-               if (pontosEntrada > pontosMove) {
+               if (pontosEntrada > pontosMove || DetectReversal(config, SELL)) {
                   novoSL = NormalizeDouble(entry - (pontosProtecao  *  percentProtenction * point),  _Digits);
                   if(trade.PositionModify(ticket, novoSL, tpAtual))
                      Print("Stop movido - Protecao - ", entry, " - SELL");
@@ -1001,6 +1007,10 @@ bool IsMarketOpenNow(int minutos = 0){
    if(!ENABLE_MONDAY && tempo.day_of_week == 0 && hora <= 20 && minuto <= 30) {
       return false;
    }*/
+   
+   if (FaltamNMinutosParaFecharMercado(minutos)){
+      return false;
+   }
       
    if(hora >= 17 && minuto  >= 30 && hora <= 19 && minuto <= 30){   
       return false;
@@ -1508,6 +1518,10 @@ void VerifyReversalTendency(TimeframeConfig &config) {
       double sl = candles[1].high;
       double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
       double tp = NormalizeDouble(calcPrice(precoAtual, -diff), _Digits);
+         
+      if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
+         return;
+      }
       
       if (!DISABLED_NEGOTIATIONS) {
          trade.SetExpertMagicNumber(config.magicNumber);
@@ -1532,6 +1546,10 @@ void VerifyReversalTendency(TimeframeConfig &config) {
       double sl = candles[1].low;
       double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
       double tp = NormalizeDouble(calcPrice(precoAtual, diff), _Digits);
+         
+      if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
+         return;
+      }
       
       if (!DISABLED_NEGOTIATIONS ) {
          trade.SetExpertMagicNumber(config.magicNumber);
@@ -1581,6 +1599,10 @@ void VerifyAverage(TimeframeConfig &config) {
       double sl = candles[1].high;
       double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP * 1.5;
       double tp = NormalizeDouble(calcPrice(precoAtual, -diff), _Digits);
+         
+      if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
+         return;
+      }
       
       if (!DISABLED_NEGOTIATIONS) {
          trade.SetExpertMagicNumber(config.magicNumber);
@@ -1610,6 +1632,10 @@ void VerifyAverage(TimeframeConfig &config) {
       double sl = candles[1].low;
       double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP * 1.5;
       double tp = NormalizeDouble(calcPrice(precoAtual, diff), _Digits);
+         
+      if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
+         return;
+      }
       
       if (!DISABLED_NEGOTIATIONS ) {
          trade.SetExpertMagicNumber(config.magicNumber);
@@ -1662,6 +1688,10 @@ void VerifyCruzamento(TimeframeConfig &config) {
          double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP * 1.5;
          double tp = NormalizeDouble(calcPrice(precoAtual, -diff), _Digits);
          
+         if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
+            return;
+         }
+         
          if (!DISABLED_NEGOTIATIONS) {
             trade.SetExpertMagicNumber(config.magicNumber);
             double tendenciaExtrapolada = IsTrendSaturated(config, precoAtual);
@@ -1692,6 +1722,10 @@ void VerifyCruzamento(TimeframeConfig &config) {
          double sl = candles[2].low;
          double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP * 1.5;
          double tp = NormalizeDouble(calcPrice(precoAtual, diff), _Digits);
+         
+         if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
+            return;
+         }
          
          if (!DISABLED_NEGOTIATIONS ) {
             trade.SetExpertMagicNumber(config.magicNumber);
@@ -1757,6 +1791,10 @@ void VerifyShortTendency(TimeframeConfig &config) {
          double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
          double tp = NormalizeDouble(calcPrice(precoAtual, -diff), _Digits);
          
+         if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
+            return;
+         }
+         
          if (!DISABLED_NEGOTIATIONS) {
             trade.SetExpertMagicNumber(config.magicNumber);
             double tendenciaExtrapolada = IsTrendSaturated(config, precoAtual);
@@ -1785,6 +1823,10 @@ void VerifyShortTendency(TimeframeConfig &config) {
          double sl = candles[2].low;
          double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
          double tp = NormalizeDouble(calcPrice(precoAtual, diff), _Digits);
+         
+         if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
+            return;
+         }
          
          
          if (!DISABLED_NEGOTIATIONS ) {
@@ -1857,6 +1899,10 @@ void VerifyTendency(TimeframeConfig &config) {
             tp = tp * PROPORTION_TAKE_STOP;
          }
          
+         if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
+            return;
+         }
+         
          if (!DISABLED_NEGOTIATIONS) {
             trade.SetExpertMagicNumber(config.magicNumber);
             double tendenciaExtrapolada = IsTrendSaturated(config, precoAtual);
@@ -1889,6 +1935,10 @@ void VerifyTendency(TimeframeConfig &config) {
          
          if (diff > calcPoints(precoAtual, tp)) {
             tp = tp * PROPORTION_TAKE_STOP;
+         }
+         
+         if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
+            return;
          }
          
          if (!DISABLED_NEGOTIATIONS ) {
@@ -2768,6 +2818,89 @@ TypeNegotiation GetTrendATR(TimeframeConfig &config){
       return SELL;
 
    return NONE;
+}
+
+double getValorReal(double distance) {
+   double valor = distance * VOLUME;
+   return valor;
+}
+
+//+------------------------------------------------------------------+
+//| Retorna true quando faltar N minutos para o mercado fechar       |
+//+------------------------------------------------------------------+
+bool FaltamNMinutosParaFecharMercado(int minutos)
+{
+   datetime agora = TimeTradeServer();
+
+   MqlDateTime dt;
+   TimeToStruct(agora, dt);
+
+   ENUM_DAY_OF_WEEK dia = (ENUM_DAY_OF_WEEK)dt.day_of_week;
+
+   datetime abertura, fechamento;
+
+   // Percorre todas as sessões do dia
+   for(uint sessao = 0; ; sessao++)
+   {
+      if(!SymbolInfoSessionTrade(_Symbol, dia, sessao, abertura, fechamento))
+         break;
+
+      // Constrói o horário de fechamento para hoje
+      MqlDateTime fechamentoDT = dt;
+
+      MqlDateTime horaSessao;
+      TimeToStruct(fechamento, horaSessao);
+
+      fechamentoDT.hour = horaSessao.hour;
+      fechamentoDT.min  = horaSessao.min;
+      fechamentoDT.sec  = horaSessao.sec;
+
+      datetime fechamentoHoje = StructToTime(fechamentoDT);
+
+      int segundosRestantes = (int)(fechamentoHoje - agora);
+
+      if(segundosRestantes > 0 &&
+         segundosRestantes <= minutos * 60)
+      {
+         return true;
+      }
+   }
+
+   return false;
+}
+
+bool ExisteNoticia(string moeda, int minutosAntes, int minutosDepois)
+{
+   MqlCalendarValue valores[];
+
+   datetime agora  = TimeTradeServer();
+   datetime inicio = agora - minutosAntes * 60;
+   datetime fim    = agora + minutosDepois * 60;
+
+   // Filtra pela moeda diretamente
+   int total = CalendarValueHistory(
+      valores,
+      inicio,
+      fim,
+      NULL,      // país
+      moeda      // moeda
+   );
+
+   if(total <= 0)
+      return false;
+
+   for(int i = 0; i < total; i++)
+   {
+      MqlCalendarEvent evento;
+
+      if(!CalendarEventById(valores[i].event_id, evento))
+         continue;
+
+      if(evento.importance == CALENDAR_IMPORTANCE_HIGH)
+         return true;
+   }
+
+   return false;
 }
 
 bool DetectReversal(TimeframeConfig &config, TypeNegotiation signal) {

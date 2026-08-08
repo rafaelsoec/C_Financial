@@ -99,7 +99,7 @@ struct TimeframeConfig
    int maxRobotsShortTendency;
    int maxRobotsCrossTendency;
    int maxRobotsAverageTendency;
-   int maxRobotsReversalTendency;
+   int maxRobotsReversionTendency;
    int maxRobotsEngolfo;
    int maxRobotsHighRisk;
    double multiplier;
@@ -109,7 +109,7 @@ struct TimeframeConfig
    bool waitNewCandleHighRisk;
    bool waitNewCandleHighRiskCross;
    bool waitNewCandleHighRiskAverage;
-   bool waitNewCandleHighRiskReversal;
+   bool waitNewCandleHighRiskReversion;
    bool enableTendency;
    bool enableInversion;
    ulong magicNumber;
@@ -156,16 +156,16 @@ input MOVE_STOP_TYPE MOVE_STOP = MOVE_STOP_30;
 input double MOVE_STOP_PROTECTION_PERCENTUAL = 50;
  double ACCEPTABLE_CANDLE_BODY_PERCENTUAL = 70;
 input double PROPORTION_TAKE_STOP = 2;
- input bool ENABLE_REVERSAL_TENDENCY = true;
  input bool ENABLE_SHORT_TENDENCY = true;
  input bool ENABLE_CROSS_TENDENCY = true;
  input bool ENABLE_AVERAGE_TENDENCY = true;
+ input bool ENABLE_REVERSAL_TENDENCY = true;
  input bool ENABLE_TENDENCY = true;
  input bool ENABLE_ENGOLFO = true;
   bool ENABLE_MARTINGALLE = false;
  input bool ENABLE_MULTI_ROBOTS_IN_PROFIT = true;
 input bool ENABLE_TIMEFRAME_MULTIPLIER = true;
-  bool ENABLE_CLOSE_IN_LOSS = false;
+ bool ENABLE_CLOSE_IN_LOSS = false;
  bool ENABLE_SATURDAY = false;
  bool ENABLE_MONDAY = false;
  bool IGNORE_MAGIC_NUMBER = true;
@@ -194,7 +194,7 @@ MqlTick tick;
 int countOrders = 0;
 bool countCycles = false, waitNewCandleMultRobot = false, waitNewCandleMartingalle = false;
 int MIN_COUNT_CANDIDATE_CANDLE = 5, BUY_COUNT = 0, SELL_COUNT = 0;
-ENUM_TIMEFRAMES tfs[] = { PERIOD_M5, PERIOD_M10, PERIOD_M15, PERIOD_M20, PERIOD_M30, PERIOD_H1};
+ENUM_TIMEFRAMES tfs[] = { PERIOD_M10, PERIOD_M15, PERIOD_M20, PERIOD_M30, PERIOD_H1};
 //---ENUM_TIMEFRAMES tfs[] = { PERIOD_M10 };
 bool MAX_LOSS_ATINGIDO = false, BLOCK_BUYS = false, BLOCK_SELLS = false;
 
@@ -390,12 +390,15 @@ int OnInit()
       configs[i].maxRobotsAverageTendency = NUMBER_MAX_ROBOT;
       configs[i].maxRobotsShortTendency = NUMBER_MAX_ROBOT;
       configs[i].maxRobotsCrossTendency = NUMBER_MAX_ROBOT;
+      configs[i].maxRobotsReversionTendency = NUMBER_MAX_ROBOT;
       configs[i].multiplier = TimeframeToMultiplier(tfs[i]);
       configs[i].actualTendency = NONE;
       configs[i].waitNewCandle = false;
       configs[i].waitNewCandleEngolfo = false;
       configs[i].waitNewCandleHighRisk = false;
       configs[i].waitNewCandleHighRiskCross = false;
+      configs[i].waitNewCandleHighRiskAverage = false;
+      configs[i].waitNewCandleHighRiskReversion = false;
       configs[i].enableTendency = TimeframeToEnablePosition(tfs[i], true);
       configs[i].enableInversion = TimeframeToEnablePosition(tfs[i], false);
       configs[i].signalReversao = NONE;
@@ -426,33 +429,40 @@ void OnTick() {
       resetCounters(COUNT_NEGOTIATIONS);
    }
    
-   
    if(HasNewCandle(PERIOD_M5)) {
       waitNewCandleMultRobot = false;
       waitNewCandleMartingalle = false;
-      if(!ENABLE_SWING_TRADE){
-         if(!IsMarketOpenNow(40)){
-            printf("%s Mercado fechado!", _Symbol);
-            closeAll();
-            return; 
+      //for(int i = 0; i < ArraySize(configs); i++)  {
+      //}
+   }
+   
+  if(HasNewCandle(PERIOD_M1)) {  
+      if (MOVE_STOP != MOVE_STOP_NONE) {
+         if (MOVE_STOP != MOVE_STOP_TRAIL) {
+             MoveStopPorPontos();
          }
       }
-      
-      COUNTER_PROFIT = 0;
-      COUNTER_LOSS = 0;
-   }
+  }
    
    if(!IS_TEST) {
       showComments();
-      if(CheckDailyMaxLoss(BALANCE, LOSS_PER_DAY, "USD ")) {
+      if(!CheckDailyMaxLoss(LOSS_PER_DAY, "USD ")) {
            printf("Perda maxima atingida.");
            closeAll();
            return;  
       }
    
-      if(ExisteNoticia("USD", 30, 30)) {
-           printf("Existem noticias para o Dolar.");
-           return; 
+      if(HasNewCandle(PERIOD_M10)) {
+         if(!ENABLE_SWING_TRADE){
+            if(!IsMarketOpenNow(30)){
+               printf("%s Mercado fechado!", _Symbol);
+               closeAll();
+               return; 
+            }
+         }
+         
+         COUNTER_PROFIT = 0;
+         COUNTER_LOSS = 0;
       }
    }
   
@@ -499,25 +509,21 @@ void OnTick() {
       resetUnitRobots(configs[i].maxRobotsShortTendency);
       resetUnitRobots(configs[i].maxRobotsCrossTendency);
       resetUnitRobots(configs[i].maxRobotsAverageTendency);
-      resetUnitRobots(configs[i].maxRobotsReversalTendency);
-        
+      resetUnitRobots(configs[i].maxRobotsReversionTendency);
+       
+      if (MOVE_STOP == MOVE_STOP_TRAIL) {
+         MoveStopByATR(configs[i]);
+      } 
+      
       if(ENABLE_ENGOLFO) {
          VerifyEngolfo(configs[i]);
       } 
-      
-      if (MOVE_STOP != MOVE_STOP_NONE && isOperableTimeframe(configs[i].tf)) {
-         if (MOVE_STOP == MOVE_STOP_TRAIL) {
-            MoveStopByATR(configs[i]);
-         } else {
-            MoveStopPorPontos(configs[i]);
-         }
-      }
      
       double tendenciaExtrapolada = IsTrendSaturated(configs[i], candles[0].close);
       if (tendenciaExtrapolada == 0) {
          return;
-      }
-     
+      }     
+      
       if (ENABLE_REVERSAL_TENDENCY ) {
           VerifyReversalTendency(configs[i]);
       }
@@ -535,14 +541,13 @@ void OnTick() {
       }
       
       
-      if(IsNewBar(configs[i]) && !isOperableTimeframe(configs[i].tf)) {
-         
+      if(IsNewBar(configs[i])) {
          configs[i].waitNewCandle = false;
          configs[i].waitNewCandleEngolfo = false;
          configs[i].waitNewCandleHighRisk = false;
          configs[i].waitNewCandleHighRiskCross = false;
          configs[i].waitNewCandleHighRiskAverage = false;
-         configs[i].waitNewCandleHighRiskReversal = false;
+         configs[i].waitNewCandleHighRiskReversion = false;
          
          if(totalPositions == 0) {
             configs[i].maxRobotsEngolfo = NUMBER_MAX_ROBOT;
@@ -550,7 +555,7 @@ void OnTick() {
             configs[i].maxRobotsShortTendency = NUMBER_MAX_ROBOT;
             configs[i].maxRobotsCrossTendency = NUMBER_MAX_ROBOT;
             configs[i].maxRobotsAverageTendency = NUMBER_MAX_ROBOT;
-            configs[i].maxRobotsReversalTendency = NUMBER_MAX_ROBOT;
+            configs[i].maxRobotsReversionTendency = NUMBER_MAX_ROBOT;
          }
          
          if(!IS_TEST) {
@@ -567,9 +572,6 @@ void OnTick() {
    }
 } 
 
-bool isOperableTimeframe(ENUM_TIMEFRAMES timeframe) {
-   return timeframe == PERIOD_M5;
-}
 
 void resetCounters(int &value[]) {
    for (int i = 0; i < ArraySize(value); i++) {
@@ -658,7 +660,7 @@ void DeleteHorizontalLinesByPrefix(ENUM_TIMEFRAMES labelTf) {
 //| Move o Stop Loss por pontos                                      |
 //| pontos = distância em pontos do preço atual                      |
 //+------------------------------------------------------------------+
-void MoveStopPorPontos(TimeframeConfig &config)
+void MoveStopPorPontos()
 {
    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
    double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
@@ -667,6 +669,7 @@ void MoveStopPorPontos(TimeframeConfig &config)
    int total = PositionsTotal();
    double profitLoss = 0, profitWins = 0;
    bool positionsInLoss[];
+   bool multRobotExecutado = false;
    
    ArrayResize(positionsInLoss, total);
    for(int i = 0; i < total; i++) {
@@ -696,7 +699,7 @@ void MoveStopPorPontos(TimeframeConfig &config)
 
       BUY_COUNT = 0;
       SELL_COUNT = 0;
-      double percentualMoveStop = MOVE_STOP_20;
+      double percentualMoveStop = MOVE_STOP;
       double pontosTP = calcPoints(entry, tpAtual);
       double pontosMove = pontosTP  * percentualMoveStop / 100;
       double pontosSL = calcPoints(slAtual, currentPrice);
@@ -713,17 +716,17 @@ void MoveStopPorPontos(TimeframeConfig &config)
          }
          
          double limit =  MathCeil(NUMBER_MAX_ROBOT / 2) == 0 ? 1 : MathRound(NUMBER_MAX_ROBOT / 2);
-         bool  isEnableMultiProfit = !IsMaxRobots() && totalPeriodos >= limit && !waitNewCandleMultRobot;
+         bool  isEnableMultiProfit = !IsMaxRobots() && totalPeriodos >= limit && !waitNewCandleMultRobot && !multRobotExecutado;
          double percentProtenction = MOVE_STOP_PROTECTION_PERCENTUAL / 100;
          if(type == POSITION_TYPE_BUY ) {
             BUY_COUNT++;
-            if (entry > slAtual || slAtual == 0 ) {
+            if (entry > slAtual || slAtual == 0) {
                if (tpAtual == 0) {
                   tpAtual = calcPrice(currentPrice, 1000);
                   pontosMove = 1000 * percentualMoveStop / 100;
                }
                
-               if (pontosEntrada > pontosMove || DetectReversal(config, BUY)) {
+               if (pontosEntrada > pontosMove) {
                   novoSL = NormalizeDouble(entry + (pontosProtecao * percentProtenction * point),  _Digits);
                   if(trade.PositionModify(ticket, novoSL, tpAtual))
                      Print("Stop movido - Protecao - ", entry, " - BUY");
@@ -744,19 +747,20 @@ void MoveStopPorPontos(TimeframeConfig &config)
                bool ok = trade.Buy(VOLUME, _Symbol, currentPrice, newValues, tpAtual, "BUY_MULT_ROBOTS");
                if(ok) {
                   waitNewCandleMultRobot = true;
+                  multRobotExecutado = true;
                }
             }
          }
    
          if(type == POSITION_TYPE_SELL) {
             SELL_COUNT++;
-            if (entry < slAtual || slAtual == 0 ) {
+            if (entry < slAtual || slAtual == 0) {
                if (tpAtual == 0) {
                   tpAtual = calcPrice(currentPrice, -1000);
                   pontosMove = 1000 * percentualMoveStop / 100;
                }
                
-               if (pontosEntrada > pontosMove || DetectReversal(config, SELL)) {
+               if (pontosEntrada > pontosMove) {
                   novoSL = NormalizeDouble(entry - (pontosProtecao  *  percentProtenction * point),  _Digits);
                   if(trade.PositionModify(ticket, novoSL, tpAtual))
                      Print("Stop movido - Protecao - ", entry, " - SELL");
@@ -778,6 +782,7 @@ void MoveStopPorPontos(TimeframeConfig &config)
                bool ok = trade.Sell(VOLUME, _Symbol, currentPrice, newValues, tpAtual, "SELL_MULT_ROBOTS");
                if(ok) {
                   waitNewCandleMultRobot = true;
+                  multRobotExecutado = true;
                }
             }
          }
@@ -786,14 +791,19 @@ void MoveStopPorPontos(TimeframeConfig &config)
       } else if(profit < 0) {
         positionsInLoss[i] = true;
         profitLoss += MathAbs(profit);
-        
-        if (ENABLE_CLOSE_IN_LOSS) {
-           if(profit < 0 && DetectReversal(config, type == POSITION_TYPE_BUY ? BUY : SELL)) {
-                 closeBuyOrSell(i, magic);
-           }
-        }
       }
+      
    }
+     
+    if (ENABLE_CLOSE_IN_LOSS && profitLoss >= LOSS_PER_DAY && (profitWins - profitLoss) < 0) {
+        for(int i = 0; i < total; i++) {
+            if (positionsInLoss[i]) {
+               closeBuyOrSell(i, MAGIC_NUMBER);
+            } else {
+               moveStopToZeroPlusPoint(i, candles[0].spread);
+            }
+        }
+    }
 }
 
 VolumeLevel GetVolumeLevel(ENUM_TIMEFRAMES timeframe, bool useRealVolume = false) {
@@ -958,31 +968,30 @@ bool IsNewBar(TimeframeConfig &config) {
    return false;
 }
 
-//+------------------------------------------------------------------+
-//| Verifica se o loss diário foi atingido                           |
-//| balanceInicioDia : Balance no início do dia                      |
-//| maxLoss          : Valor máximo de perda (em dinheiro)           |
-//+------------------------------------------------------------------+
-bool CheckDailyMaxLoss(double balanceInicioDia, double maxLoss, string log_prefix = "") {  
-   if(maxLoss <= 0) {
+bool CheckDailyMaxLoss(double percentLossPerDay, string log_prefix = "") {
+    if(MAX_LOSS_ATINGIDO) {
        return false;
-   }
-   
-   if(MAX_LOSS_ATINGIDO) {
+    }
+    
+    if(percentLossPerDay <= 0) {
        return true;
-   }
-   
-   double balanceAtual = AccountInfoDouble(ACCOUNT_BALANCE);
-
-   double perda = balanceInicioDia - balanceAtual;
-
-   if(perda >= maxLoss) {
-      Print(log_prefix, "? MAX LOSS DIÁRIO ATINGIDO! $", 
-            DoubleToString(MathAbs(perda), 2), "/", maxLoss);
-      return true;
-   }
-
-   return false;
+    }
+    double max_loss_dollars = percentLossPerDay;
+    
+    // Calcula perda do dia (todas posições)
+   // double profit = AccountInfoDouble(ACCOUNT_PROFIT);
+    //if (profit < 0) {
+       double daily_loss = AccountInfoDouble(ACCOUNT_BALANCE) -  BALANCE;
+       if((daily_loss < 0 && daily_loss <= -max_loss_dollars)) {
+           MAX_LOSS_ATINGIDO = true;
+           if(log_prefix != "") {
+               Print(log_prefix, "? MAX LOSS DIÁRIO ATINGIDO! $", 
+                     DoubleToString(MathAbs(daily_loss), 2), "/", max_loss_dollars);
+           }
+           return false;  // Pare de operar
+       }
+  //  }
+    return true;  // Pode operar
 }
 
 bool IsMarketOpenNow(int minutos = 0){
@@ -1008,10 +1017,6 @@ bool IsMarketOpenNow(int minutos = 0){
    if(!ENABLE_MONDAY && tempo.day_of_week == 0 && hora <= 20 && minuto <= 30) {
       return false;
    }*/
-   
-   if (FaltamNMinutosParaFecharMercado(minutos)){
-      return false;
-   }
       
    if(hora >= 17 && minuto  >= 30 && hora <= 19 && minuto <= 30){   
       return false;
@@ -1392,6 +1397,81 @@ double isLateralizado(int start, int end) {
    return 0;
 }
 
+void VerifyReversalTendency(TimeframeConfig &config) {
+   double precoAtual = candles[0].close;
+   double newVolume = NormalizeVolume(ENABLE_TIMEFRAME_MULTIPLIER ? VOLUME * config.multiplier : VOLUME);
+   datetime actualTime = TimeLocal();
+    
+   if(config.maxRobotsReversionTendency < 0) {
+     return;
+   }
+
+   if (config.waitNewCandleHighRiskReversion) {
+     return;
+   }
+      
+   if(IsMaxRobots()) {
+      return;
+   }
+   
+   if (DetectReversal(config, SELL)) {
+      config.actualTendency = SELL;
+      double sl = candles[2].high;
+      double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
+      double tp = NormalizeDouble(calcPrice(precoAtual, -diff), _Digits);
+      
+      if (!DISABLED_NEGOTIATIONS) {
+         if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
+            return;
+         }
+         
+         trade.SetExpertMagicNumber(config.magicNumber);
+         double tendenciaExtrapolada = IsTrendSaturated(config, precoAtual);
+         if (tendenciaExtrapolada == 0) {
+            return;
+         }
+         
+         newVolume = NormalizeVolume(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits));
+         bool ok = trade.Sell(newVolume, _Symbol, precoAtual, sl, tp, "SELL_REVERSAL_TENDENCY_" + config.label);
+         if(ok){
+            COUNT_NEGOTIATIONS[4] += 1;
+            ExecuteMartingale(config, SELL, calcPoints(candles[2].open, candles[1].close), precoAtual, newVolume, sl, tp, 0.15);
+            drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL_REVERSAL_CANDIDATO" +  FormatDateToString(candles[0].time), clrRosyBrown);
+            Print("SELL REVERSAL TENDENCY executado com sucesso em ", config.label);
+            config.waitNewCandleHighRiskReversion = true;
+            config.maxRobotsReversionTendency--;
+         }
+      }
+   } else if (DetectReversal(config, BUY)) {
+      config.actualTendency = BUY;
+      double sl = candles[2].low;
+      double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
+      double tp = NormalizeDouble(calcPrice(precoAtual, diff), _Digits);
+      
+      if (!DISABLED_NEGOTIATIONS ) {
+         if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
+            return;
+         }
+         
+         trade.SetExpertMagicNumber(config.magicNumber);
+         double tendenciaExtrapolada = IsTrendSaturated(config, precoAtual);
+         if (tendenciaExtrapolada == 0) {
+            return;
+         }
+         
+         newVolume = NormalizeVolume(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits));
+         bool ok = trade.Buy(newVolume, _Symbol, precoAtual, sl, tp, "BUY_REVERSAL_TENDENCY_" + config.label);
+         if(ok){
+            COUNT_NEGOTIATIONS[4] += 1;
+            ExecuteMartingale(config, BUY, calcPoints(candles[2].open, candles[1].close), precoAtual, newVolume, sl, tp, 0.15);
+            drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_BUY_REVERSAL_CANDIDATO" +  FormatDateToString(candles[0].time), clrAqua);
+            Print("BUY REVERSAL TENDENCY executado com sucesso em ", config.label);
+            config.waitNewCandleHighRiskReversion = true;
+            config.maxRobotsReversionTendency--;
+         }
+      }
+   }
+}
 
 void VerifyEngolfo(TimeframeConfig &config) {
     if(config.maxRobotsEngolfo < 0) {
@@ -1497,86 +1577,10 @@ void VerifyEngolfo(TimeframeConfig &config) {
    }
 }
 
-void VerifyReversalTendency(TimeframeConfig &config) {
-   double precoAtual = candles[0].close;
-   double newVolume = NormalizeVolume(ENABLE_TIMEFRAME_MULTIPLIER ? VOLUME * config.multiplier : VOLUME);
-   datetime actualTime = TimeLocal();
-    
-   if(config.maxRobotsReversalTendency < 0) {
-      return;
-   }
-      
-   if(IsMaxRobots()) {
-      return;
-   }
-
-   if (config.waitNewCandleHighRiskReversal) {
-      return;
-   }
-   
-   if (DetectReversal(config, SELL)) {
-      config.actualTendency = SELL;
-      double sl = candles[1].high;
-      double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
-      double tp = NormalizeDouble(calcPrice(precoAtual, -diff), _Digits);
-         
-      if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
-         return;
-      }
-      
-      if (!DISABLED_NEGOTIATIONS) {
-         trade.SetExpertMagicNumber(config.magicNumber);
-         double tendenciaExtrapolada = IsTrendSaturated(config, precoAtual);
-         if (tendenciaExtrapolada == 0) {
-            return;
-         }
-         
-         newVolume = NormalizeVolume(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits));
-         bool ok = trade.Sell(newVolume, _Symbol, precoAtual, sl, tp, "SELL_REVERSAL_TENDENCY_" + config.label);
-         if(ok){
-            COUNT_NEGOTIATIONS[4] += 1;
-            ExecuteMartingale(config, SELL, calcPoints(candles[2].open, candles[1].close), precoAtual, newVolume, sl, tp, 0.15);
-            drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_SELL_REVERSAL_CANDIDATO" +  FormatDateToString(candles[0].time), clrRosyBrown);
-            Print("SELL REVERSAL TENDENCY executado com sucesso em ", config.label);
-            config.waitNewCandleHighRiskReversal = true;
-            config.maxRobotsReversalTendency--;
-         }
-      }
-   } else if (DetectReversal(config, BUY)) {
-      config.actualTendency = BUY;
-      double sl = candles[1].low;
-      double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
-      double tp = NormalizeDouble(calcPrice(precoAtual, diff), _Digits);
-         
-      if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
-         return;
-      }
-      
-      if (!DISABLED_NEGOTIATIONS ) {
-         trade.SetExpertMagicNumber(config.magicNumber);
-         double tendenciaExtrapolada = IsTrendSaturated(config, precoAtual);
-         if (tendenciaExtrapolada == 0) {
-            return;
-         }
-         
-         newVolume = NormalizeVolume(NormalizeDouble(newVolume * tendenciaExtrapolada, _Digits));
-         bool ok = trade.Buy(newVolume, _Symbol, precoAtual, sl, tp, "BUY_REVERSAL_TENDENCY_" + config.label);
-         if(ok){
-            COUNT_NEGOTIATIONS[4] += 1;
-            ExecuteMartingale(config, BUY, calcPoints(candles[2].open, candles[1].close), precoAtual, newVolume, sl, tp, 0.15);
-            drawVerticalLine(actualTime, "Object_line_candleCandidato_" + EnumToString(config.tf) + "_BUY_REVERSAL_CANDIDATO" +  FormatDateToString(candles[0].time), clrAqua);
-            Print("BUY REVERSAL TENDENCY executado com sucesso em ", config.label);
-            config.waitNewCandleHighRiskReversal = true;
-            config.maxRobotsReversalTendency--;
-         }
-      }
-   }
-}
-
 void VerifyAverage(TimeframeConfig &config) {
    double precoAtual = candles[0].close;
    double newVolume = NormalizeVolume(ENABLE_TIMEFRAME_MULTIPLIER ? VOLUME * config.multiplier : VOLUME);
-   datetime actualTime = TimeLocal();
+   datetime actualTime = TimeCurrent();
     
    if(config.maxRobotsAverageTendency < 0) {
       return;
@@ -1600,12 +1604,11 @@ void VerifyAverage(TimeframeConfig &config) {
       double sl = candles[1].high;
       double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP * 1.5;
       double tp = NormalizeDouble(calcPrice(precoAtual, -diff), _Digits);
-         
-      if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
-         return;
-      }
       
       if (!DISABLED_NEGOTIATIONS) {
+         if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
+            return;
+         }
          trade.SetExpertMagicNumber(config.magicNumber);
          double tendenciaExtrapolada = IsTrendSaturated(config, precoAtual);
          if (tendenciaExtrapolada == 0) {
@@ -1633,13 +1636,13 @@ void VerifyAverage(TimeframeConfig &config) {
       double sl = candles[1].low;
       double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP * 1.5;
       double tp = NormalizeDouble(calcPrice(precoAtual, diff), _Digits);
-         
-      if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
-         return;
-      }
       
       if (!DISABLED_NEGOTIATIONS ) {
          trade.SetExpertMagicNumber(config.magicNumber);
+         if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
+            return;
+         }
+         
          double tendenciaExtrapolada = IsTrendSaturated(config, precoAtual);
          if (tendenciaExtrapolada == 0) {
             return;
@@ -1663,7 +1666,7 @@ void VerifyCruzamento(TimeframeConfig &config) {
    double precoAtual = candles[0].close;
    double newVolume = NormalizeVolume(ENABLE_TIMEFRAME_MULTIPLIER ? VOLUME * config.multiplier : VOLUME);
    bool diff = MathAbs(config.adxMinus[2] - config.adxPlus[2])  > 10;
-   datetime actualTime = TimeLocal();
+   datetime actualTime = TimeCurrent();
     
    if(config.maxRobotsCrossTendency < 0) {
       return;
@@ -1686,14 +1689,14 @@ void VerifyCruzamento(TimeframeConfig &config) {
             && ((config.movingAverage21[0] > precoAtual && config.movingAverage[2] > precoAtual) || (config.movingAverage50[0] > precoAtual && config.movingAverage[2] > precoAtual))) {
          config.actualTendency = SELL;
          double sl = candles[2].high;
-         double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP * 1.5;
+         double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
          double tp = NormalizeDouble(calcPrice(precoAtual, -diff), _Digits);
          
-         if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
-            return;
-         }
-         
          if (!DISABLED_NEGOTIATIONS) {
+            if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
+               return;
+            }
+            
             trade.SetExpertMagicNumber(config.magicNumber);
             double tendenciaExtrapolada = IsTrendSaturated(config, precoAtual);
             if (tendenciaExtrapolada == 0) {
@@ -1721,14 +1724,14 @@ void VerifyCruzamento(TimeframeConfig &config) {
             && ((config.movingAverage21[0] < precoAtual && config.movingAverage[2] < precoAtual) || (config.movingAverage50[0] < precoAtual && config.movingAverage[2] < precoAtual))) {
          config.actualTendency = BUY;
          double sl = candles[2].low;
-         double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP * 1.5;
+         double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
          double tp = NormalizeDouble(calcPrice(precoAtual, diff), _Digits);
          
-         if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
-            return;
-         }
-         
          if (!DISABLED_NEGOTIATIONS ) {
+            if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
+               return;
+            }
+            
             trade.SetExpertMagicNumber(config.magicNumber);
             double tendenciaExtrapolada = IsTrendSaturated(config, precoAtual);
             if (tendenciaExtrapolada == 0) {
@@ -1769,7 +1772,7 @@ void VerifyShortTendency(TimeframeConfig &config) {
       return;
     }
       
-   datetime actualTime = TimeLocal();
+   datetime actualTime = TimeCurrent();
    double precoAtual = candles[0].close;
    double minAnterior = candles[1].open;
    double newVolume = NormalizeVolume(ENABLE_TIMEFRAME_MULTIPLIER ? VOLUME * config.multiplier : VOLUME);
@@ -1792,11 +1795,11 @@ void VerifyShortTendency(TimeframeConfig &config) {
          double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
          double tp = NormalizeDouble(calcPrice(precoAtual, -diff), _Digits);
          
-         if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
-            return;
-         }
-         
          if (!DISABLED_NEGOTIATIONS) {
+            if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
+               return;
+            }
+            
             trade.SetExpertMagicNumber(config.magicNumber);
             double tendenciaExtrapolada = IsTrendSaturated(config, precoAtual);
             if (tendenciaExtrapolada == 0) {
@@ -1825,12 +1828,12 @@ void VerifyShortTendency(TimeframeConfig &config) {
          double diff = calcPoints(precoAtual, sl) * PROPORTION_TAKE_STOP;
          double tp = NormalizeDouble(calcPrice(precoAtual, diff), _Digits);
          
-         if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
-            return;
-         }
-         
          
          if (!DISABLED_NEGOTIATIONS ) {
+            if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
+               return;
+            }
+            
             trade.SetExpertMagicNumber(config.magicNumber);
             double tendenciaExtrapolada = IsTrendSaturated(config, precoAtual);
             if (tendenciaExtrapolada == 0) {
@@ -1900,11 +1903,11 @@ void VerifyTendency(TimeframeConfig &config) {
             tp = tp * PROPORTION_TAKE_STOP;
          }
          
-         if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
-            return;
-         }
-         
          if (!DISABLED_NEGOTIATIONS) {
+            if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
+               return;
+            }
+            
             trade.SetExpertMagicNumber(config.magicNumber);
             double tendenciaExtrapolada = IsTrendSaturated(config, precoAtual);
             if (tendenciaExtrapolada == 0) {
@@ -1938,11 +1941,11 @@ void VerifyTendency(TimeframeConfig &config) {
             tp = tp * PROPORTION_TAKE_STOP;
          }
          
-         if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
-            return;
-         }
-         
          if (!DISABLED_NEGOTIATIONS ) {
+            if (getValorReal(calcPoints(precoAtual, sl)) < 5) {
+               return;
+            }
+            
             trade.SetExpertMagicNumber(config.magicNumber);
             double tendenciaExtrapolada = IsTrendSaturated(config, precoAtual);
             if (tendenciaExtrapolada == 0) {
@@ -2821,92 +2824,10 @@ TypeNegotiation GetTrendATR(TimeframeConfig &config){
    return NONE;
 }
 
-double getValorReal(double distance) {
-   double valor = distance * VOLUME;
-   return valor;
-}
-
-//+------------------------------------------------------------------+
-//| Retorna true quando faltar N minutos para o mercado fechar       |
-//+------------------------------------------------------------------+
-bool FaltamNMinutosParaFecharMercado(int minutos)
-{
-   datetime agora = TimeTradeServer();
-
-   MqlDateTime dt;
-   TimeToStruct(agora, dt);
-
-   ENUM_DAY_OF_WEEK dia = (ENUM_DAY_OF_WEEK)dt.day_of_week;
-
-   datetime abertura, fechamento;
-
-   // Percorre todas as sessões do dia
-   for(uint sessao = 0; ; sessao++)
-   {
-      if(!SymbolInfoSessionTrade(_Symbol, dia, sessao, abertura, fechamento))
-         break;
-
-      // Constrói o horário de fechamento para hoje
-      MqlDateTime fechamentoDT = dt;
-
-      MqlDateTime horaSessao;
-      TimeToStruct(fechamento, horaSessao);
-
-      fechamentoDT.hour = horaSessao.hour;
-      fechamentoDT.min  = horaSessao.min;
-      fechamentoDT.sec  = horaSessao.sec;
-
-      datetime fechamentoHoje = StructToTime(fechamentoDT);
-
-      int segundosRestantes = (int)(fechamentoHoje - agora);
-
-      if(segundosRestantes > 0 &&
-         segundosRestantes <= minutos * 60)
-      {
-         return true;
-      }
-   }
-
-   return false;
-}
-
-bool ExisteNoticia(string moeda, int minutosAntes, int minutosDepois)
-{
-   MqlCalendarValue valores[];
-
-   datetime agora  = TimeTradeServer();
-   datetime inicio = agora - minutosAntes * 60;
-   datetime fim    = agora + minutosDepois * 60;
-
-   // Filtra pela moeda diretamente
-   int total = CalendarValueHistory(
-      valores,
-      inicio,
-      fim,
-      NULL,      // país
-      moeda      // moeda
-   );
-
-   if(total <= 0)
-      return false;
-
-   for(int i = 0; i < total; i++)
-   {
-      MqlCalendarEvent evento;
-
-      if(!CalendarEventById(valores[i].event_id, evento))
-         continue;
-
-      if(evento.importance == CALENDAR_IMPORTANCE_HIGH)
-         return true;
-   }
-
-   return false;
-}
 
 bool DetectReversal(TimeframeConfig &config, TypeNegotiation signal) {
-   double close0 = iClose(_Symbol,_Period,0);
-   double close1 = iClose(_Symbol,_Period,1);
+   double close0 = iClose(_Symbol,config.tf, 0);
+   double close1 = iClose(_Symbol,config.tf, 1);
 
    bool touchMA =
       MathAbs(close0 - config.movingAverage[0]) < (_Point) ||
@@ -2921,17 +2842,17 @@ bool DetectReversal(TimeframeConfig &config, TypeNegotiation signal) {
    if(signal== SELL)
       cross9 = (close1< config.movingAverage[1] && close0> config.movingAverage[0]);
 
-   bool candleReverse = DetectEngulfing(signal);
+   bool candleReverse = DetectEngulfing(config, signal);
 
    return touchMA || cross9 || candleReverse;
 }
 
-bool DetectEngulfing(TypeNegotiation positionType) {
-   double open1  = iOpen(_Symbol, _Period, 1);
-   double close1 = iClose(_Symbol, _Period, 1);
+bool DetectEngulfing(TimeframeConfig &config, TypeNegotiation positionType) {
+   double open1  = iOpen(_Symbol, config.tf, 1);
+   double close1 = iClose(_Symbol, config.tf, 1);
 
-   double open2  = iOpen(_Symbol, _Period, 2);
-   double close2 = iClose(_Symbol, _Period, 2);
+   double open2  = iOpen(_Symbol, config.tf, 2);
+   double close2 = iClose(_Symbol, config.tf, 2);
 
    //=========================================
    // Procurando reversão para fechar COMPRA
@@ -2972,4 +2893,9 @@ bool DetectEngulfing(TypeNegotiation positionType) {
    }
 
    return false;
+}
+
+double getValorReal(double distance) {
+   double valor = distance * VOLUME;
+   return valor;
 }

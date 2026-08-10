@@ -156,15 +156,15 @@ input MOVE_STOP_TYPE MOVE_STOP = MOVE_STOP_30;
 input double MOVE_STOP_PROTECTION_PERCENTUAL = 50;
  double ACCEPTABLE_CANDLE_BODY_PERCENTUAL = 70;
 input double PROPORTION_TAKE_STOP = 2;
- input bool ENABLE_SHORT_TENDENCY = true;
- input bool ENABLE_CROSS_TENDENCY = true;
- input bool ENABLE_AVERAGE_TENDENCY = true;
- input bool ENABLE_REVERSAL_TENDENCY = true;
- input bool ENABLE_TENDENCY = true;
- input bool ENABLE_ENGOLFO = true;
+  bool ENABLE_SHORT_TENDENCY = true;
+  bool ENABLE_CROSS_TENDENCY = true;
+  bool ENABLE_AVERAGE_TENDENCY = true;
+  bool ENABLE_REVERSAL_TENDENCY = true;
+  bool ENABLE_TENDENCY = true;
+  bool ENABLE_ENGOLFO = false;
   bool ENABLE_MARTINGALLE = false;
- input bool ENABLE_MULTI_ROBOTS_IN_PROFIT = true;
-input bool ENABLE_TIMEFRAME_MULTIPLIER = true;
+  bool ENABLE_MULTI_ROBOTS_IN_PROFIT = false;
+ bool ENABLE_TIMEFRAME_MULTIPLIER = true;
  bool ENABLE_CLOSE_IN_LOSS = false;
  bool ENABLE_SATURDAY = false;
  bool ENABLE_MONDAY = false;
@@ -581,7 +581,7 @@ void resetCounters(int &value[]) {
 
 void resetUnitRobots(int value) {
    int totalPositions = PositionsTotal();
-   if (value < 0 && totalPositions < NUMBER_MAX_ROBOT) {
+   if (value < 0 && totalPositions < 1) {
       value = NUMBER_MAX_ROBOT;
    }
 }
@@ -716,7 +716,12 @@ void MoveStopPorPontos()
          }
          
          double limit =  MathCeil(NUMBER_MAX_ROBOT / 2) == 0 ? 1 : MathRound(NUMBER_MAX_ROBOT / 2);
-         bool  isEnableMultiProfit = !IsMaxRobots() && totalPeriodos >= limit && !waitNewCandleMultRobot && !multRobotExecutado;
+         bool  isEnableMultiProfit = !IsMaxRobots() 
+            && totalPeriodos >= limit 
+            && !waitNewCandleMultRobot 
+            && !multRobotExecutado ;
+           // && profitWins >= total / 2
+          //  && profitWins > profitLoss;
          double percentProtenction = MOVE_STOP_PROTECTION_PERCENTUAL / 100;
          if(type == POSITION_TYPE_BUY ) {
             BUY_COUNT++;
@@ -787,10 +792,10 @@ void MoveStopPorPontos()
             }
          }
         positionsInLoss[i] = false;
-        profitWins += MathAbs(profit);
+        profitWins++;
       } else if(profit < 0) {
         positionsInLoss[i] = true;
-        profitLoss += MathAbs(profit);
+        profitLoss++;
       }
       
    }

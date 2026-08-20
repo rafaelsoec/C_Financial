@@ -172,7 +172,6 @@ input bool ENABLE_CRUZAMENTO = true;
 input bool ENABLE_ENGOLFO = true;
 input bool ENABLE_MEDIAS = true;
 input bool ENABLE_TENDENCIA = true;
-input bool ENABLE_ROMPIMENTO_BORDA = true;
 input int NUMBER_MAX_ROBOT = 2;
 input ulong MAGIC_NUMBER = 97889902933;
 input bool IS_TEST = false;
@@ -180,10 +179,11 @@ input bool IS_TEST = false;
 TimeframeConfig configs[];
 ENUM_TIMEFRAMES tfs[] = { PERIOD_M15, PERIOD_M30,PERIOD_H1, PERIOD_H2, PERIOD_H4};
 int QTD_ITEMS = 15;
- double POINTS_TARGET = 0;
+double POINTS_TARGET = 0;
 double BALANCE = 0;
 bool MAX_LOSS_ATINGIDO = false;
- bool ENABLE_TIMEFRAME_MULTIPLIER = false;
+bool ENABLE_TIMEFRAME_MULTIPLIER = false;
+bool ENABLE_ROMPIMENTO_BORDA = false;
 
 //
 //+------------------------------------------------------------------+
@@ -389,28 +389,31 @@ void OnTick() {
          DesenharMaximoMinimoMaisTocados(configs[i], 15, 10);
       }
       
-      int remainingSeconds = calcularCandleTime(_Period);
-      if (remainingSeconds > configs[i].tfSeconds / 2 || getVolumeAtr(configs[i]) == 0) {
+      if(getVolumeAtr(configs[i]) == 0) {
          return;
       }
       
-      configs[i].vendaPermitida = (!VerificarTimeframeAnterior(SELL, configs[i].tfAnterior) || !verificarBordas(configs[i], SELL));
-      configs[i].compraPermitida = (!VerificarTimeframeAnterior(BUY, configs[i].tfAnterior) || !verificarBordas(configs[i], BUY));
-     
-      if (ENABLE_ENGOLFO) {
-         executarEngolfo(configs[i]);
-      }
       
-      if (ENABLE_MEDIAS) {
-         executarMedias(configs[i]);
-      }
-      
-      if (ENABLE_CRUZAMENTO) {
-         executarCruzamento(configs[i]);
-      }
-      
-      if (ENABLE_TENDENCIA) {
-         executarTendencia(configs[i]);
+      int remainingSeconds = calcularCandleTime(configs[i].tf);
+      if (remainingSeconds < configs[i].tfSeconds * 0.4) {
+         configs[i].vendaPermitida = (!VerificarTimeframeAnterior(SELL, configs[i].tfAnterior) || !verificarBordas(configs[i], SELL));
+         configs[i].compraPermitida = (!VerificarTimeframeAnterior(BUY, configs[i].tfAnterior) || !verificarBordas(configs[i], BUY));
+        
+         if (ENABLE_ENGOLFO) {
+            executarEngolfo(configs[i]);
+         }
+         
+         if (ENABLE_MEDIAS) {
+            executarMedias(configs[i]);
+         }
+         
+         if (ENABLE_CRUZAMENTO) {
+            executarCruzamento(configs[i]);
+         }
+         
+         if (ENABLE_TENDENCIA) {
+            executarTendencia(configs[i]);
+         }
       }
  
    }

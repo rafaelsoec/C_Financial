@@ -1400,8 +1400,7 @@ void closeAll(){
 //| Move o Stop Loss por pontos                                      |
 //| pontos = distância em pontos do preço atual                      |
 //+------------------------------------------------------------------+
-void MoveStopPorPontos()
-{
+void MoveStopPorPontos() {
    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
    double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
@@ -1425,7 +1424,7 @@ void MoveStopPorPontos()
          continue;
 
       ulong magic = (ulong)PositionGetInteger(POSITION_MAGIC);
-      if(magic != MAGIC_NUMBER)
+      if(magic > 0 && magic != MAGIC_NUMBER)
          continue;
 
       long type        = PositionGetInteger(POSITION_TYPE);

@@ -1424,7 +1424,12 @@ void MoveStopPorPontos() {
          continue;
 
       ulong magic = (ulong)PositionGetInteger(POSITION_MAGIC);
-      if(magic > 0 && magic != MAGIC_NUMBER)
+      if (magic <= 0) {
+         printf("Atualizando numero magico");
+         magic = MAGIC_NUMBER;
+      }
+      
+      if(magic != MAGIC_NUMBER)
          continue;
 
       long type        = PositionGetInteger(POSITION_TYPE);

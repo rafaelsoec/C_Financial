@@ -1449,12 +1449,8 @@ void MoveStopPorPontos() {
       double pontosProtecao = pontosMove * percentualMoveStop / 100;
       
       if (tpAtual <= 0) {
-         tpAtual = 1000;
-         trade.PositionModify(ticket, slAtual, tpAtual);
-      }
-      
-      if (slAtual <= 0) {
-         slAtual = 1000;
+         tpAtual = tpAtual <= 0 ? CalcularPreco(currentPrice, (type == POSITION_TYPE_BUY ? 1000 : -1000)) : tpAtual;
+         slAtual = slAtual <= 0 ? CalcularPreco(currentPrice, (type == POSITION_TYPE_BUY ? -1000 : 1000)) : slAtual;
          trade.PositionModify(ticket, slAtual, tpAtual);
       }
       
@@ -1607,4 +1603,9 @@ bool TemPavioMaiorQueCorpo(MqlRates &candle){
       return true;
 
    return false;
+}
+
+//+------------------------------------------------------------------+
+double CalcularPreco(double price, double points) {
+   return NormalizeDouble(price + points * _Point, _Digits);
 }

@@ -1364,7 +1364,7 @@ bool hasPositionOpenWithMagicNumber(int position, ulong magicNumberRobot){
       ulong ticket = PositionGetTicket(position);
       PositionSelectByTicket(ticket);
       ulong magicNumber = PositionGetInteger(POSITION_MAGIC);
-      if(magicNumber == magicNumberRobot){
+      if(magicNumber <= 0 || magicNumber == magicNumberRobot){
          return true;
       }
    }
@@ -1443,6 +1443,14 @@ void MoveStopPorPontos()
       double pontosSL = CalcularPontos(slAtual, currentPrice);
       double pontosEntrada = CalcularPontos(entry, currentPrice);
       double pontosProtecao = pontosMove * percentualMoveStop / 100;
+      
+      if (tpAtual <= 0) {
+         tpAtual = 1000;
+      }
+      
+      if (slAtual <= 0) {
+         slAtual = 1000;
+      }
       
       if (profit > 0) {
          double percentProtenction = 0.5;

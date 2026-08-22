@@ -174,16 +174,20 @@ input bool ENABLE_MEDIAS = true;
 input bool ENABLE_TENDENCIA = true;
 input int NUMBER_MAX_ROBOT = 2;
 input ulong MAGIC_NUMBER = 97889902933;
+input bool IS_SWING_TRADE = false;
 input bool IS_TEST = false;
 
 TimeframeConfig configs[];
-ENUM_TIMEFRAMES tfs[] = { PERIOD_M15, PERIOD_M30,PERIOD_H1, PERIOD_H2, PERIOD_H4};
+ENUM_TIMEFRAMES tfs[] = { PERIOD_M15};
+//, PERIOD_M30,PERIOD_H1, PERIOD_H2, PERIOD_H4
+
 int QTD_ITEMS = 15;
 double POINTS_TARGET = 0;
 double BALANCE = 0;
 bool MAX_LOSS_ATINGIDO = false;
 bool ENABLE_TIMEFRAME_MULTIPLIER = false;
 bool ENABLE_ROMPIMENTO_BORDA = false;
+bool NOVA_NOTICIA_AGUARDANDO = false;
 
 //
 //+------------------------------------------------------------------+
@@ -338,10 +342,28 @@ void OnTick() {
    
    if(!IS_TEST) {
       showComments();
-      if(!CheckDailyMaxLoss(LOSS_PER_DAY, "USD ")) {
-           printf("Perda maxima atingida.");
-           closeAll();
-           return;  
+      int totalOp = PositionsTotal();
+      if (totalOp > 0 && (MAX_LOSS_ATINGIDO || EmPerdaDiaria(LOSS_PER_DAY, "USD "))) {
+        MAX_LOSS_ATINGIDO = true;
+        printf("Perda maxima atingida.");
+        closeAll();
+        return;  
+      }
+      
+      if (!IS_SWING_TRADE) {
+         if (NovoCandle(PERIOD_M5)) {
+            if (totalOp > 0 && SimboloVaiFechar(_Symbol, 30)) {
+              printf("Mercado fechado!");
+              closeAll();
+              return;  
+            }
+            
+            if (!NOVA_NOTICIA_AGUARDANDO && ExisteProximaNoticia(_Symbol, 30)) {
+              printf("Noticia nos proximos 30 minutos!");
+              NOVA_NOTICIA_AGUARDANDO = true;
+              return;  
+            }
+         }
       }
    }
    
@@ -387,6 +409,7 @@ void OnTick() {
          resetarRobo(configs[i].robotCrossTendency, total);
          resetarRobo(configs[i].robotTendency, total);
          DesenharMaximoMinimoMaisTocados(configs[i], 15, 10);
+         NOVA_NOTICIA_AGUARDANDO = false;
       }
       
       if(getVolumeAtr(configs[i]) == 0) {
@@ -421,6 +444,8 @@ void OnTick() {
 
 void executarEngolfo(TimeframeConfig &config) {
    double precoAtual = config.candles[0].close;
+   double highAtual = config.candles[0].high;
+   double lowAtual = config.candles[0].low;
    if (invalidarExecucao(config.robotEngolfoTendency)){
       return;
    }
@@ -428,11 +453,11 @@ void executarEngolfo(TimeframeConfig &config) {
    string comentario = "robotEngolfoTendency_" + EnumToString(config.tf); 
    double lastOpen = config.candles[2].open;
    if(CandlesEmparelhados(config.tf, 3, 200)) {
-      if (precoAtual > lastOpen && precoAtual > config.movingAverage21[0] && config.compraPermitida) {
+      if (!TemPavioMaiorQueCorpo(config.candles[0]) && highAtual > lastOpen && highAtual > config.movingAverage21[0] && config.compraPermitida) {
          double stop = CalcularPontos(precoAtual, lastOpen);
          double take = stop * PROPORTION_TAKE_STOP;
          ExecutarNegociacao(BUY, VOLUME, stop, take, comentario, config.robotEngolfoTendency);
-      } else if (precoAtual < lastOpen && precoAtual < config.movingAverage21[0] && config.vendaPermitida) {
+      } else if (!TemPavioMaiorQueCorpo(config.candles[0]) && lowAtual < lastOpen && lowAtual < config.movingAverage21[0] && config.vendaPermitida) {
          double stop = CalcularPontos(precoAtual, lastOpen);
          double take = stop * PROPORTION_TAKE_STOP;
          ExecutarNegociacao(SELL, VOLUME, stop, take, comentario, config.robotEngolfoTendency);
@@ -442,22 +467,24 @@ void executarEngolfo(TimeframeConfig &config) {
 
 void executarCruzamento(TimeframeConfig &config) {
    double precoAtual = config.candles[0].close;
+   double highAtual = config.candles[0].high;
+   double lowAtual = config.candles[0].low;
    if (invalidarExecucao(config.robotCrossTendency)){
       return;
    }
    
    string comentario = "robotCrossTendency_" + EnumToString(config.tf);
    if(config.adxMinusTendency != NONE  && config.adxPlusTendency != NONE && config.adxMinusTendency != config.adxPlusTendency) {
-      if (IsBearish(config.candles[0])  && config.adxMinusTendency == BUY && config.adxMinus[0] > config.adxPlus[0] && config.adxMinus[4] < config.adxPlus[4]
-            && ((config.movingAverage21[0] > precoAtual && config.movingAverage[0] > precoAtual)) && config.vendaPermitida) {
+      if (!TemPavioMaiorQueCorpo(config.candles[0]) && IsBearish(config.candles[0])  && config.adxMinusTendency == BUY && config.adxMinus[0] > config.adxPlus[0] && config.adxMinus[4] < config.adxPlus[4]
+            && ((config.movingAverage21[0] > lowAtual && config.movingAverage[0] > lowAtual)) && config.vendaPermitida) {
          MaximosMinimos maxMin = getMinOrMax(1, 3, config);
          double stop =  CalcularPontos(maxMin.high, precoAtual);
          double take = stop * PROPORTION_TAKE_STOP;
          ExecutarNegociacao(SELL, VOLUME, stop, take, comentario, config.robotCrossTendency);
       }
       
-      if (IsBullish(config.candles[0]) && config.adxMinusTendency == SELL  && config.adxMinus[0] < config.adxPlus[0]  && config.adxMinus[4] > config.adxPlus[4]
-            && ((config.movingAverage21[0] < precoAtual && config.movingAverage[0] < precoAtual)) && config.compraPermitida) {
+      if (!TemPavioMaiorQueCorpo(config.candles[0]) && IsBullish(config.candles[0]) && config.adxMinusTendency == SELL  && config.adxMinus[0] < config.adxPlus[0]  && config.adxMinus[4] > config.adxPlus[4]
+            && ((config.movingAverage21[0] < highAtual && config.movingAverage[0] < highAtual)) && config.compraPermitida) {
          MaximosMinimos maxMin = getMinOrMax(1, 3, config);
          double stop =  CalcularPontos(maxMin.low, precoAtual);
          double take = stop * PROPORTION_TAKE_STOP;
@@ -469,18 +496,20 @@ void executarCruzamento(TimeframeConfig &config) {
 
 void executarMedias(TimeframeConfig &config) {
    double precoAtual = config.candles[0].close;
+   double highAtual = config.candles[0].high;
+   double lowAtual = config.candles[0].low;
    if (invalidarExecucao(config.robotAverageTendency)){
       return;
    }
    
    string comentario = "robotAverageTendency_" + EnumToString(config.tf);
-   if (IsBearish(config.candles[1]) && IsBearish(config.candles[0]) && config.movingAverage[2] > precoAtual  && config.movingAverage21[0] > precoAtual) {
+   if (!TemPavioMaiorQueCorpo(config.candles[1]) && IsBearish(config.candles[1]) && IsBearish(config.candles[0]) && config.movingAverage[2] > lowAtual  && config.movingAverage21[0] > lowAtual) {
      if (config.vendaPermitida) {
          double stop =  CalcularPontos(config.candles[1].high, precoAtual);
          double take = stop * PROPORTION_TAKE_STOP;
          ExecutarNegociacao(SELL, VOLUME, stop, take, comentario, config.robotAverageTendency);
      }
-   } else if (IsBullish(config.candles[1]) && IsBullish(config.candles[0]) && config.movingAverage[0] < precoAtual  && config.movingAverage21[0] < precoAtual) {
+   } else if (!TemPavioMaiorQueCorpo(config.candles[1]) && IsBullish(config.candles[1]) && IsBullish(config.candles[0]) && config.movingAverage[0] < highAtual  && config.movingAverage21[0] < highAtual) {
      if (config.compraPermitida) {
          double stop =  CalcularPontos(config.candles[1].low, precoAtual);
          double take = stop * PROPORTION_TAKE_STOP;
@@ -491,6 +520,8 @@ void executarMedias(TimeframeConfig &config) {
 
 void executarTendencia(TimeframeConfig &config) {
    double precoAtual = config.candles[0].close;
+   double highAtual = config.candles[0].high;
+   double lowAtual = config.candles[0].low;
    if (invalidarExecucao(config.robotTendency)){
       return;
    }
@@ -499,16 +530,16 @@ void executarTendencia(TimeframeConfig &config) {
    int initialTendency = getCandleTendecy(1  , QTD_CANDLES, 1, true, 0, config);
    bool diff =  MathAbs(config.adxPlus[0] - config.adxMinus[0])  > 10;
    
-   if(IsBearish(config.candles[0]) && initialTendency == -1  && diff){
-      if (config.movingAverage[1] > precoAtual && config.movingAverage[2] > precoAtual 
+   if(!TemPavioMaiorQueCorpo(config.candles[0]) && IsBearish(config.candles[0]) && initialTendency == -1  && diff){
+      if (config.movingAverage[1] > lowAtual && config.movingAverage[2] > lowAtual 
          && config.adxMinus[0] > config.adxPlus[0] && config.vendaPermitida) {
          MaximosMinimos maxMin = getMinOrMax(1, QTD_CANDLES, config);
          double stop =  CalcularPontos(maxMin.high, precoAtual);
          double take = stop * PROPORTION_TAKE_STOP;
          ExecutarNegociacao(SELL, VOLUME, stop, take, comentario, config.robotTendency);
       }
-   } else  if(IsBullish(config.candles[0]) && initialTendency == 1 && diff ){
-      if (config.movingAverage[1] < precoAtual && config.movingAverage[2] < precoAtual 
+   } else  if(!TemPavioMaiorQueCorpo(config.candles[0]) && IsBullish(config.candles[0]) && initialTendency == 1 && diff ){
+      if (config.movingAverage[1] < highAtual && config.movingAverage[2] < highAtual 
          && config.adxPlus[0] > config.adxMinus[0] && config.compraPermitida) {
          MaximosMinimos maxMin = getMinOrMax(1, QTD_CANDLES, config);
          double stop =  CalcularPontos(maxMin.low, precoAtual);
@@ -1291,26 +1322,22 @@ int calcularCandleTime(ENUM_TIMEFRAMES tf) {
 }
 
 
-bool CheckDailyMaxLoss(double percentLossPerDay, string log_prefix = "") {
-    if(MAX_LOSS_ATINGIDO) {
+bool EmPerdaDiaria(double percentLossPerDay, string log_prefix = "") {
+    if(percentLossPerDay <= 0) {
        return false;
     }
     
-    if(percentLossPerDay <= 0) {
-       return true;
-    }
     double max_loss_dollars = percentLossPerDay;
     double daily_loss = AccountInfoDouble(ACCOUNT_BALANCE) -  BALANCE;
     if((daily_loss < 0 && daily_loss <= -max_loss_dollars)) {
-        MAX_LOSS_ATINGIDO = true;
         if(log_prefix != "") {
             Print(log_prefix, "? MAX LOSS DIÁRIO ATINGIDO! $", 
                   DoubleToString(MathAbs(daily_loss), 2), "/", max_loss_dollars);
         }
-        return false;  // Pare de operar
+        return true;  
     }
     
-    return true;  // Pode operar
+    return false; 
 }
 
 bool IsMarketOpenNow(int minutos = 0){
@@ -1452,4 +1479,118 @@ void MoveStopPorPontos()
          }
       }
    }
+}
+
+bool SimboloVaiFechar(string simbolo, int minutes) {
+   datetime agora = TimeTradeServer();
+   datetime futuro = agora + (minutes * 60);
+
+   MqlDateTime dt;
+   TimeToStruct(agora, dt);
+
+   ENUM_DAY_OF_WEEK dia = (ENUM_DAY_OF_WEEK)dt.day_of_week;
+
+   datetime inicio, fim;
+   int sessao = 0;
+   while(SymbolInfoSessionTrade(simbolo, dia, sessao, inicio, fim)) {
+      sessao++;
+      MqlDateTime fimSessao;
+      TimeToStruct(fim, fimSessao);
+      fimSessao.year = dt.year;
+      fimSessao.mon  = dt.mon;
+      fimSessao.day  = dt.day;
+      datetime fechamento = StructToTime(fimSessao);
+      if(futuro > fechamento)
+         return true;
+   }
+
+   return false;
+}
+
+bool ExisteProximaNoticia(string simbolo, int minutos){
+   datetime agora = TimeTradeServer();
+   datetime limite = agora + (minutos * 60);
+
+   string moedaBase   = SymbolInfoString(simbolo, SYMBOL_CURRENCY_BASE);
+   string moedaProfit = SymbolInfoString(simbolo, SYMBOL_CURRENCY_PROFIT);
+
+   if(ExisteNoticiaMoeda(moedaBase, agora, limite)) {
+      return true;
+   }
+
+   if(moedaProfit != "" && moedaProfit != moedaBase) {
+      if(ExisteNoticiaMoeda(moedaProfit, agora, limite)) {
+         return true;
+      }
+   }
+
+   return false;
+}
+
+bool ExisteNoticiaMoeda(string moeda, datetime inicio, datetime fim) {
+   MqlCalendarValue valores[];
+
+   int total = CalendarValueHistory( valores, inicio,  fim );
+   if(total <= 0)
+      return false;
+
+   for(int i = 0; i < total; i++){
+      MqlCalendarEvent evento;
+
+      if(!CalendarEventById(valores[i].event_id, evento))
+         continue;
+
+      MqlCalendarCountry pais;
+
+      if(!CalendarCountryById(evento.country_id, pais))
+         continue;
+
+      // Verifica se a notícia pertence à moeda
+      if(pais.currency != moeda)
+         continue;
+
+      // Somente alto impacto
+      if(evento.importance != CALENDAR_IMPORTANCE_HIGH)
+         continue;
+
+      Print(
+         "Notícia encontrada: ",
+         evento.name,
+         " | Moeda: ", pais.currency,
+         " | Horário: ",
+         TimeToString(valores[i].time, TIME_DATE | TIME_MINUTES)
+      );
+
+      return true;
+   }
+
+   return false;
+}
+
+bool NovoCandle(ENUM_TIMEFRAMES timeframe){
+   static datetime ultimoCandle = 0;
+   datetime candleAtual = iTime(_Symbol, timeframe, 0);
+   if(candleAtual == 0)
+      return false;
+
+   if(candleAtual != ultimoCandle){
+      ultimoCandle = candleAtual;
+      return true;
+   }
+
+   return false;
+}
+
+bool TemPavioMaiorQueCorpo(MqlRates &candle){
+   double corpo = MathAbs(candle.close - candle.open);
+   double pavioSuperior = candle.high - MathMax(candle.open, candle.close);
+   double pavioInferior =  MathMin(candle.open, candle.close) - candle.low;
+
+   if(pavioSuperior > 0 && pavioSuperior > corpo)
+      return true;
+
+   if(pavioInferior > 0 && pavioInferior > corpo)
+      return true;
+
+   return false;
 }

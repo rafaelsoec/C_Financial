@@ -1448,7 +1448,7 @@ void MoveStopPorPontos() {
       double pontosEntrada = CalcularPontos(entry, currentPrice);
       double pontosProtecao = pontosMove * percentualMoveStop / 100;
       
-      if (tpAtual <= 0) {
+      if (tpAtual <= 0 || slAtual <= 0) {
          tpAtual = tpAtual <= 0 ? CalcularPreco(currentPrice, (type == POSITION_TYPE_BUY ? 1000 : -1000)) : tpAtual;
          slAtual = slAtual <= 0 ? CalcularPreco(currentPrice, (type == POSITION_TYPE_BUY ? -1000 : 1000)) : slAtual;
          trade.PositionModify(ticket, slAtual, tpAtual);

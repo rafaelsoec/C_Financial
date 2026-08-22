@@ -372,7 +372,7 @@ void OnTick() {
    }
    
    for(int i = 0; i < ArraySize(configs); i++)  {
-      if(!GetLastClosedCandles(configs[i])) {
+      if(!GetLastClosedCandles(configs[i].tf, configs[i].candles)) {
          printf("Candles Nao Recuperados - " + EnumToString(configs[i].tf));
          return;
       } 
@@ -477,7 +477,7 @@ void executarCruzamento(TimeframeConfig &config) {
    if(config.adxMinusTendency != NONE  && config.adxPlusTendency != NONE && config.adxMinusTendency != config.adxPlusTendency) {
       if (!TemPavioMaiorQueCorpo(config.candles[0]) && IsBearish(config.candles[0])  && config.adxMinusTendency == BUY && config.adxMinus[0] > config.adxPlus[0] && config.adxMinus[4] < config.adxPlus[4]
             && ((config.movingAverage21[0] > lowAtual && config.movingAverage[0] > lowAtual)) && config.vendaPermitida) {
-         MaximosMinimos maxMin = getMinOrMax(1, 3, config);
+         MaximosMinimos maxMin = getMinOrMax(1, 3, config.candles);
          double stop =  CalcularPontos(maxMin.high, precoAtual);
          double take = stop * PROPORTION_TAKE_STOP;
          ExecutarNegociacao(SELL, VOLUME, stop, take, comentario, config.robotCrossTendency);
@@ -485,7 +485,7 @@ void executarCruzamento(TimeframeConfig &config) {
       
       if (!TemPavioMaiorQueCorpo(config.candles[0]) && IsBullish(config.candles[0]) && config.adxMinusTendency == SELL  && config.adxMinus[0] < config.adxPlus[0]  && config.adxMinus[4] > config.adxPlus[4]
             && ((config.movingAverage21[0] < highAtual && config.movingAverage[0] < highAtual)) && config.compraPermitida) {
-         MaximosMinimos maxMin = getMinOrMax(1, 3, config);
+         MaximosMinimos maxMin = getMinOrMax(1, 3, config.candles);
          double stop =  CalcularPontos(maxMin.low, precoAtual);
          double take = stop * PROPORTION_TAKE_STOP;
          ExecutarNegociacao(BUY, VOLUME, stop, take, comentario, config.robotCrossTendency);
@@ -533,7 +533,7 @@ void executarTendencia(TimeframeConfig &config) {
    if(!TemPavioMaiorQueCorpo(config.candles[0]) && IsBearish(config.candles[0]) && initialTendency == -1  && diff){
       if (config.movingAverage[1] > lowAtual && config.movingAverage[2] > lowAtual 
          && config.adxMinus[0] > config.adxPlus[0] && config.vendaPermitida) {
-         MaximosMinimos maxMin = getMinOrMax(1, QTD_CANDLES, config);
+         MaximosMinimos maxMin = getMinOrMax(1, QTD_CANDLES, config.candles);
          double stop =  CalcularPontos(maxMin.high, precoAtual);
          double take = stop * PROPORTION_TAKE_STOP;
          ExecutarNegociacao(SELL, VOLUME, stop, take, comentario, config.robotTendency);
@@ -541,7 +541,7 @@ void executarTendencia(TimeframeConfig &config) {
    } else  if(!TemPavioMaiorQueCorpo(config.candles[0]) && IsBullish(config.candles[0]) && initialTendency == 1 && diff ){
       if (config.movingAverage[1] < highAtual && config.movingAverage[2] < highAtual 
          && config.adxPlus[0] > config.adxMinus[0] && config.compraPermitida) {
-         MaximosMinimos maxMin = getMinOrMax(1, QTD_CANDLES, config);
+         MaximosMinimos maxMin = getMinOrMax(1, QTD_CANDLES, config.candles);
          double stop =  CalcularPontos(maxMin.low, precoAtual);
          double take = stop * PROPORTION_TAKE_STOP;
          ExecutarNegociacao(BUY, VOLUME, stop, take, comentario, config.robotTendency);
@@ -741,7 +741,7 @@ void iniciarRobos(TimeFrameRobot &robot) {
    }  
 }
 
-MaximosMinimos getMinOrMax(int start, int end, TimeframeConfig &config) {
+MaximosMinimos getMinOrMax(int start, int end, MqlRates &candles[]) {
    double high = 0;
    double low = 999999;
    double minClose = 999999;
@@ -751,23 +751,23 @@ MaximosMinimos getMinOrMax(int start, int end, TimeframeConfig &config) {
    MaximosMinimos maxMin;
    
    for(int i = start; i <= end; i++) {
-      if (config.candles[i].low < low) {
-         low = config.candles[i].low;
+      if (candles[i].low < low) {
+         low = candles[i].low;
       }
-      if (config.candles[i].high > high) {
-         high = config.candles[i].high;
+      if (candles[i].high > high) {
+         high = candles[i].high;
       }
-      if (config.candles[i].close < minClose) {
-         minClose = config.candles[i].close;
+      if (candles[i].close < minClose) {
+         minClose = candles[i].close;
       }
-      if (config.candles[i].close > maxClose) {
-         maxClose = config.candles[i].close;
+      if (candles[i].close > maxClose) {
+         maxClose = candles[i].close;
       }
-      if (config.candles[i].open < minOpen) {
-         minOpen = config.candles[i].open;
+      if (candles[i].open < minOpen) {
+         minOpen = candles[i].open;
       }
-      if (config.candles[i].open > maxOpen) {
-         maxOpen = config.candles[i].open;
+      if (candles[i].open > maxOpen) {
+         maxOpen = candles[i].open;
       }
    }
 
@@ -877,11 +877,9 @@ bool IsNewBar(TimeframeConfig &config) {
    return false;
 }
 
-bool GetLastClosedCandles(TimeframeConfig &config) {
-   ENUM_TIMEFRAMES tf = config.tf;
-   ArraySetAsSeries(config.candles, true);
-
-   int copied = CopyRates(_Symbol, tf, 0, QTD_CANDLES * 2, config.candles);
+bool GetLastClosedCandles(ENUM_TIMEFRAMES tf, MqlRates &candles[]) {
+   ArraySetAsSeries(candles, true);
+   int copied = CopyRates(_Symbol, tf, 0, QTD_CANDLES * 2, candles);
    if(copied < QTD_CANDLES) {
       Print("Erro ao copiar candles de ", TimeframeToLabel(tf), ". Copiados: ", copied, " Erro: ", GetLastError());
       return false;
@@ -1409,6 +1407,7 @@ void MoveStopPorPontos() {
    double profitLoss = 0, profitWins = 0;
    bool positionsInLoss[];
    bool multRobotExecutado = false;
+   MqlRates candles[];
    
    ArrayResize(positionsInLoss, total);
    for(int i = 0; i < total; i++) {
@@ -1449,8 +1448,9 @@ void MoveStopPorPontos() {
       double pontosProtecao = pontosMove * percentualMoveStop / 100;
       
       if (tpAtual <= 0 || slAtual <= 0) {
-         tpAtual = tpAtual <= 0 ? CalcularPreco(currentPrice, (type == POSITION_TYPE_BUY ? 1000 : -1000)) : tpAtual;
-         slAtual = slAtual <= 0 ? CalcularPreco(currentPrice, (type == POSITION_TYPE_BUY ? -1000 : 1000)) : slAtual;
+         double points = PontosParaPips(1000);
+         tpAtual = tpAtual <= 0 ? CalcularPreco(currentPrice, (type == POSITION_TYPE_BUY ? points : -points)) : tpAtual;
+         slAtual = slAtual <= 0 ? CalcularPreco(currentPrice, (type == POSITION_TYPE_BUY ? -points : points)) : slAtual;  
          trade.PositionModify(ticket, slAtual, tpAtual);
       }
       
@@ -1608,4 +1608,14 @@ bool TemPavioMaiorQueCorpo(MqlRates &candle){
 //+------------------------------------------------------------------+
 double CalcularPreco(double price, double points) {
    return NormalizeDouble(price + points * _Point, _Digits);
+}
+
+double PontosParaPips(double pontos) {
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+
+   if(point <= 0 || tickSize <= 0)
+      return 0;
+
+   return (pontos * point) / tickSize;
 }

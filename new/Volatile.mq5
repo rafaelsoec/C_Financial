@@ -1424,7 +1424,6 @@ void MoveStopPorPontos() {
 
       ulong magic = (ulong)PositionGetInteger(POSITION_MAGIC);
       if (magic <= 0) {
-         printf("Atualizando numero magico");
          magic = MAGIC_NUMBER;
       }
       
@@ -1448,7 +1447,7 @@ void MoveStopPorPontos() {
       double pontosProtecao = pontosMove * percentualMoveStop / 100;
       
       if (tpAtual <= 0 || slAtual <= 0) {
-         double points = PontosParaPips(1000);
+         double points = ValorParaPontos(ticket, BALANCE * 0.01);
          tpAtual = tpAtual <= 0 ? CalcularPreco(currentPrice, (type == POSITION_TYPE_BUY ? points : -points)) : tpAtual;
          slAtual = slAtual <= 0 ? CalcularPreco(currentPrice, (type == POSITION_TYPE_BUY ? -points : points)) : slAtual;  
          trade.PositionModify(ticket, slAtual, tpAtual);
@@ -1610,12 +1609,25 @@ double CalcularPreco(double price, double points) {
    return NormalizeDouble(price + points * _Point, _Digits);
 }
 
-double PontosParaPips(double pontos) {
-   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-
-   if(point <= 0 || tickSize <= 0)
+double ValorParaPontos(ulong ticket, double valorReais) {
+   if(!PositionSelectByTicket(ticket))
       return 0;
 
-   return (pontos * point) / tickSize;
+   string simbolo = PositionGetString(POSITION_SYMBOL);
+   double volume = PositionGetDouble(POSITION_VOLUME);
+
+   double tickSize = SymbolInfoDouble(simbolo, SYMBOL_TRADE_TICK_SIZE);
+   double tickValue = SymbolInfoDouble(simbolo, SYMBOL_TRADE_TICK_VALUE);
+   double point = SymbolInfoDouble(simbolo, SYMBOL_POINT);
+
+   if(tickSize <= 0 || tickValue <= 0 || point <= 0 || volume <= 0)
+      return 0;
+
+   // Valor de 1 ponto para o volume da posição
+   double valorPorPonto = (tickValue / tickSize) * point * volume;
+
+   if(valorPorPonto <= 0)
+      return 0;
+
+   return valorReais / valorPorPonto;
 }

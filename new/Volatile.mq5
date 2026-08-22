@@ -1448,8 +1448,8 @@ void MoveStopPorPontos() {
       
       if (tpAtual <= 0 || slAtual <= 0) {
          double points = ValorParaPontos(ticket, LOSS_PER_DAY);
-         tpAtual = tpAtual <= 0 ? CalcularPreco(currentPrice, (type == POSITION_TYPE_BUY ? points : -points)) : tpAtual;
-         slAtual = slAtual <= 0 ? CalcularPreco(currentPrice, (type == POSITION_TYPE_BUY ? -points : points)) : slAtual;  
+         tpAtual = tpAtual <= 0 ? CalcularPreco(currentPrice, (entry == POSITION_TYPE_BUY ? points : -points)) : tpAtual;
+         slAtual = slAtual <= 0 ? CalcularPreco(currentPrice, (entry == POSITION_TYPE_BUY ? -points : points)) : slAtual;  
          trade.PositionModify(ticket, slAtual, tpAtual);
       }
       

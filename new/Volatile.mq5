@@ -1450,10 +1450,12 @@ void MoveStopPorPontos() {
       
       if (tpAtual <= 0) {
          tpAtual = 1000;
+         trade.PositionModify(ticket, slAtual, tpAtual);
       }
       
       if (slAtual <= 0) {
          slAtual = 1000;
+         trade.PositionModify(ticket, slAtual, tpAtual);
       }
       
       if (profit > 0) {

@@ -176,6 +176,7 @@ input int NUMBER_MAX_ROBOT = 2;
 input ulong MAGIC_NUMBER = 97889902933;
 input bool IS_SWING_TRADE = false;
 input bool IS_TEST = false;
+bool IGNORE_MAGIC_NUMBER = true;
 
 TimeframeConfig configs[];
 ENUM_TIMEFRAMES tfs[] = { PERIOD_M15};
@@ -423,19 +424,19 @@ void OnTick() {
          configs[i].compraPermitida = (!VerificarTimeframeAnterior(BUY, configs[i].tfAnterior) || !verificarBordas(configs[i], BUY));
         
          if (ENABLE_ENGOLFO) {
-            executarEngolfo(configs[i]);
+       //     executarEngolfo(configs[i]);
          }
          
          if (ENABLE_MEDIAS) {
-            executarMedias(configs[i]);
+       //     executarMedias(configs[i]);
          }
          
          if (ENABLE_CRUZAMENTO) {
-            executarCruzamento(configs[i]);
+       //     executarCruzamento(configs[i]);
          }
          
          if (ENABLE_TENDENCIA) {
-            executarTendencia(configs[i]);
+        //    executarTendencia(configs[i]);
          }
       }
  
@@ -1359,10 +1360,14 @@ bool IsMarketOpenNow(int minutos = 0){
 
 bool hasPositionOpenWithMagicNumber(int position, ulong magicNumberRobot){
    if(hasPositionOpen(position)){
+      if (IGNORE_MAGIC_NUMBER) {
+         return true;
+      }
+   
       ulong ticket = PositionGetTicket(position);
       PositionSelectByTicket(ticket);
       ulong magicNumber = PositionGetInteger(POSITION_MAGIC);
-      if(magicNumber <= 0 || magicNumber == magicNumberRobot){
+      if(magicNumber == magicNumberRobot){
          return true;
       }
    }
@@ -1493,9 +1498,13 @@ void MoveStopPorPontos() {
 bool SimboloVaiFechar(string simbolo, int minutes) {
    datetime agora = TimeTradeServer();
    datetime futuro = agora + (minutes * 60);
-
+   
    MqlDateTime dt;
    TimeToStruct(agora, dt);
+   
+   if((dt.hour >= 17 && dt.min >= 20) && (dt.hour <= 19 && dt.min <= 40)) {
+      return true;
+   }
 
    ENUM_DAY_OF_WEEK dia = (ENUM_DAY_OF_WEEK)dt.day_of_week;
 
@@ -1509,8 +1518,9 @@ bool SimboloVaiFechar(string simbolo, int minutes) {
       fimSessao.mon  = dt.mon;
       fimSessao.day  = dt.day;
       datetime fechamento = StructToTime(fimSessao);
-      if(futuro > fechamento)
+      if(futuro > fechamento) {
          return true;
+      }
    }
 
    return false;
@@ -1524,11 +1534,13 @@ bool ExisteProximaNoticia(string simbolo, int minutos){
    string moedaProfit = SymbolInfoString(simbolo, SYMBOL_CURRENCY_PROFIT);
 
    if(ExisteNoticiaMoeda(moedaBase, agora, limite)) {
+      printf("Tem Noticia");
       return true;
    }
 
    if(moedaProfit != "" && moedaProfit != moedaBase) {
       if(ExisteNoticiaMoeda(moedaProfit, agora, limite)) {
+      printf("Tem Noticia");
          return true;
       }
    }

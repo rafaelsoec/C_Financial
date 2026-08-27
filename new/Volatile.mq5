@@ -181,7 +181,7 @@ bool IGNORE_MAGIC_NUMBER = true;
  bool ENABLE_PRICE_VALIDATION = false;
 
 TimeframeConfig configs[];
-ENUM_TIMEFRAMES tfs[] = { PERIOD_M10, PERIOD_M15, PERIOD_M30,PERIOD_H1, PERIOD_H2, PERIOD_H4};
+ENUM_TIMEFRAMES tfs[] = { PERIOD_M10, PERIOD_M15, PERIOD_M30,PERIOD_H1};
 //
 
 int QTD_ITEMS = 15;
@@ -487,16 +487,16 @@ void executarCruzamento(TimeframeConfig &config) {
    if(config.adxMinusTendency != NONE  && config.adxPlusTendency != NONE && config.adxMinusTendency != config.adxPlusTendency) {
       if (!TemPavioMaiorQueCorpo(config.candles[0]) && IsBearish(config.candles[0])  && config.adxMinusTendency == BUY && config.adxMinus[0] > config.adxPlus[0] && config.adxMinus[4] < config.adxPlus[4]
             && ((config.movingAverage21[0] > lowAtual && config.movingAverage[0] > lowAtual)) && config.vendaPermitida && !TendenciaTerminou(config, SELL)) {
-         MaximosMinimos maxMin = getMinOrMax(1, 3, config.candles);
-         double stop =  CalcularPontos(maxMin.high, precoAtual);
+         double high = ObterExtremo(config, QTD_CANDLES, true);
+         double stop =  CalcularPontos(high, precoAtual);
          double take = stop * PROPORTION_TAKE_STOP;
          ExecutarNegociacao(SELL, VOLUME, stop, take, comentario, config.robotCrossTendency);
       }
       
       if (!TemPavioMaiorQueCorpo(config.candles[0]) && IsBullish(config.candles[0]) && config.adxMinusTendency == SELL  && config.adxMinus[0] < config.adxPlus[0]  && config.adxMinus[4] > config.adxPlus[4]
             && ((config.movingAverage21[0] < highAtual && config.movingAverage[0] < highAtual)) && config.compraPermitida && !TendenciaTerminou(config, BUY)) {
-         MaximosMinimos maxMin = getMinOrMax(1, 3, config.candles);
-         double stop =  CalcularPontos(maxMin.low, precoAtual);
+         double low = ObterExtremo(config, QTD_CANDLES, false);
+         double stop =  CalcularPontos(low, precoAtual);
          double take = stop * PROPORTION_TAKE_STOP;
          ExecutarNegociacao(BUY, VOLUME, stop, take, comentario, config.robotCrossTendency);
       }
@@ -543,16 +543,16 @@ void executarTendencia(TimeframeConfig &config) {
    if(!TemPavioMaiorQueCorpo(config.candles[0]) && IsBearish(config.candles[0]) && initialTendency == -1  && diff){
       if (config.movingAverage[1] > lowAtual && config.movingAverage[2] > lowAtual 
          && config.adxMinus[0] > config.adxPlus[0] && config.vendaPermitida && !TendenciaTerminou(config, SELL)) {
-         MaximosMinimos maxMin = getMinOrMax(1, QTD_CANDLES, config.candles);
-         double stop =  CalcularPontos(maxMin.high, precoAtual);
+         double high = ObterExtremo(config, QTD_CANDLES, true);
+         double stop =  CalcularPontos(high, precoAtual);
          double take = stop * PROPORTION_TAKE_STOP;
          ExecutarNegociacao(SELL, VOLUME, stop, take, comentario, config.robotTendency);
       }
    } else  if(!TemPavioMaiorQueCorpo(config.candles[0]) && IsBullish(config.candles[0]) && initialTendency == 1 && diff ){
       if (config.movingAverage[1] < highAtual && config.compraPermitida && config.movingAverage[2] < highAtual 
          && config.adxPlus[0] > config.adxMinus[0] && !TendenciaTerminou(config, BUY)) {
-         MaximosMinimos maxMin = getMinOrMax(1, QTD_CANDLES, config.candles);
-         double stop =  CalcularPontos(maxMin.low, precoAtual);
+         double low = ObterExtremo(config, QTD_CANDLES, false);
+         double stop =  CalcularPontos(low, precoAtual);
          double take = stop * PROPORTION_TAKE_STOP;
          ExecutarNegociacao(BUY, VOLUME, stop, take, comentario, config.robotTendency);
       }
@@ -1807,4 +1807,34 @@ void AjustarStopTake(TypeNegotiation tipo, double &stop, double &take){
          take = temp;
       }
    }
+}
+
+double ObterExtremo(TimeframeConfig &config,  int n, bool buscarHigh ) {
+   string simbolo = _Symbol;
+   ENUM_TIMEFRAMES timeframe = config.tf;
+   
+   if(n <= 0)
+      return 0;
+
+   double extremo;
+
+   if(buscarHigh)
+      extremo = config.candles[0].high;
+   else
+      extremo = config.candles[0].low;
+
+   for(int i = 1; i < n; i++) {
+      if(buscarHigh)
+      {
+         if(config.candles[i].high > extremo)
+            extremo = config.candles[i].high;
+      }
+      else
+      {
+         if(config.candles[i].low < extremo)
+            extremo = config.candles[i].low;
+      }
+   }
+
+   return extremo;
 }

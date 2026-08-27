@@ -586,6 +586,7 @@ bool ExecutarNegociacao(TypeNegotiation tipoNegociacao, double volume,  double p
          return false;
       }
 
+      AjustarStopTake(SELL, stop, take);
       if(!trade.Buy(volume,  _Symbol,  preco, stop,  take, comentario)) {
          Print("Erro ao executar compra: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription(), " - ", comentario);
          return false;
@@ -603,7 +604,8 @@ bool ExecutarNegociacao(TypeNegotiation tipoNegociacao, double volume,  double p
       if (preco < take || stop < preco) {
          return false;
       }
-
+      
+      AjustarStopTake(SELL, stop, take);
       if(!trade.Sell(volume,  _Symbol,  preco, stop, take, comentario)) {
          Print("Erro ao executar venda: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription(), " - ", comentario);
          return false;
@@ -1472,6 +1474,7 @@ void MoveStopPorPontos() {
          double points = ValorParaPontos(ticket, LOSS_PER_DAY);
          tpAtual = tpAtual <= 0 ? CalcularPreco(currentPrice, (entry == POSITION_TYPE_BUY ? points : -points)) : tpAtual;
          slAtual = slAtual <= 0 ? CalcularPreco(currentPrice, (entry == POSITION_TYPE_BUY ? -points : points)) : slAtual;  
+         AjustarStopTake(BUY, slAtual, tpAtual);
          trade.PositionModify(ticket, slAtual, tpAtual);
       }
       
@@ -1481,12 +1484,14 @@ void MoveStopPorPontos() {
             if (entry > slAtual || slAtual == 0) {
                if (pontosEntrada > pontosMove) {
                   novoSL = NormalizeDouble(entry + (pontosProtecao * percentProtenction * point),  _Digits);
+                  AjustarStopTake(BUY, novoSL, tpAtual);
                   if(trade.PositionModify(ticket, novoSL, tpAtual))
                      Print("Stop movido - Protecao - ", entry, " - BUY");
                } 
             } else {
                if (pontosSL > pontosMove) {
                   novoSL = NormalizeDouble(slAtual + (pontosProtecao *  percentProtenction  * point),  _Digits);
+                  AjustarStopTake(BUY, novoSL, tpAtual);
                   if(trade.PositionModify(ticket, novoSL, tpAtual))
                      Print("Stop movido - ", novoSL, " - BUY");
                }
@@ -1497,12 +1502,14 @@ void MoveStopPorPontos() {
             if (entry < slAtual || slAtual == 0) {
                if (pontosEntrada > pontosMove) {
                   novoSL = NormalizeDouble(entry - (pontosProtecao  *  percentProtenction * point),  _Digits);
+                  AjustarStopTake(SELL, novoSL, tpAtual);
                   if(trade.PositionModify(ticket, novoSL, tpAtual))
                      Print("Stop movido - Protecao - ", entry, " - SELL");
                } 
             } else {
                if (pontosSL > pontosMove) {
                   novoSL = NormalizeDouble(slAtual - (pontosProtecao *  percentProtenction  * point),  _Digits);
+                  AjustarStopTake(SELL, novoSL, tpAtual);
                   if(trade.PositionModify(ticket, novoSL, tpAtual))
                      Print("Stop movido - ", novoSL, " - SELL");
                }
@@ -1782,4 +1789,22 @@ bool TendenciaTerminou(TimeframeConfig &config, TypeNegotiation tipo) {
    // ---------------------------------------------------------
 
    return sinais >= 2;
+}
+
+void AjustarStopTake(TypeNegotiation tipo, double &stop, double &take){
+   if(tipo == BUY) {
+      if(stop > take)
+      {
+         double temp = stop;
+         stop = take;
+         take = temp;
+      }
+   }
+   else if(tipo == SELL) {
+      if(stop < take) {
+         double temp = stop;
+         stop = take;
+         take = temp;
+      }
+   }
 }

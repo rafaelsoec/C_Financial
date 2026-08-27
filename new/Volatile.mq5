@@ -142,6 +142,7 @@ struct TimeframeConfig
    double adxMinus[15];
    double adxPlus[15];
    double cci[15];
+   double preco;
    BordersOperation bordas;
    TypeNegotiation adxTendency;
    TypeNegotiation adxPlusTendency;
@@ -163,15 +164,16 @@ struct MaximosMinimos
 };
 
 input int QTD_CANDLES = 5;
-input double VOLUME = 0.01;
-input double LOSS_PER_DAY = 200;
-input ATR_TYPE ATR_MINIMUM = ATR_1;
+input double VOLUME = 0.05;
+input double LOSS_PER_DAY = 1200;
+input ATR_TYPE ATR_MINIMUM = ATR_0_5;
 input MOVE_STOP_TYPE MOVE_STOP = MOVE_STOP_30;
 input double PROPORTION_TAKE_STOP = 2;
 input bool ENABLE_CRUZAMENTO = true;
 input bool ENABLE_ENGOLFO = true;
 input bool ENABLE_MEDIAS = true;
 input bool ENABLE_TENDENCIA = true;
+input bool ENABLE_PRICE_VALIDATION = true;
 input int NUMBER_MAX_ROBOT = 2;
 input ulong MAGIC_NUMBER = 97889902933;
 input bool IS_SWING_TRADE = false;
@@ -179,8 +181,8 @@ input bool IS_TEST = false;
 bool IGNORE_MAGIC_NUMBER = true;
 
 TimeframeConfig configs[];
-ENUM_TIMEFRAMES tfs[] = { PERIOD_M15};
-//, PERIOD_M30,PERIOD_H1, PERIOD_H2, PERIOD_H4
+ENUM_TIMEFRAMES tfs[] = { PERIOD_M15, PERIOD_M30,PERIOD_H1, PERIOD_H2, PERIOD_H4};
+//
 
 int QTD_ITEMS = 15;
 double POINTS_TARGET = 0;
@@ -373,6 +375,14 @@ void OnTick() {
    }
    
    for(int i = 0; i < ArraySize(configs); i++)  {
+      configs[i].preco = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+      if(ENABLE_PRICE_VALIDATION && DeveEvitarOperacao(configs[i])) {
+         Print("Operação bloqueada: preço próximo de nível múltiplo de 5 pips. Atual: ", configs[i].preco);
+         return;
+      }
+
+      // Continua a lógica da operação
       if(!GetLastClosedCandles(configs[i].tf, configs[i].candles)) {
          printf("Candles Nao Recuperados - " + EnumToString(configs[i].tf));
          return;
@@ -424,19 +434,19 @@ void OnTick() {
          configs[i].compraPermitida = (!VerificarTimeframeAnterior(BUY, configs[i].tfAnterior) || !verificarBordas(configs[i], BUY));
         
          if (ENABLE_ENGOLFO) {
-       //     executarEngolfo(configs[i]);
+            executarEngolfo(configs[i]);
          }
          
          if (ENABLE_MEDIAS) {
-       //     executarMedias(configs[i]);
+            executarMedias(configs[i]);
          }
          
          if (ENABLE_CRUZAMENTO) {
-       //     executarCruzamento(configs[i]);
+            executarCruzamento(configs[i]);
          }
          
          if (ENABLE_TENDENCIA) {
-        //    executarTendencia(configs[i]);
+            executarTendencia(configs[i]);
          }
       }
  
@@ -572,9 +582,13 @@ bool ExecutarNegociacao(TypeNegotiation tipoNegociacao, double volume,  double p
 
       stop = NormalizeDouble(stop, _Digits);
       take = NormalizeDouble(take, _Digits);
+      
+      if (preco > take || stop > preco) {
+         return false;
+      }
 
       if(!trade.Buy(volume,  _Symbol,  preco, stop,  take, comentario)) {
-         Print("Erro ao executar compra: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription());
+         Print("Erro ao executar compra: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription(), " - ", comentario);
          return false;
       }
       ordemExecutada = true;
@@ -586,9 +600,13 @@ bool ExecutarNegociacao(TypeNegotiation tipoNegociacao, double volume,  double p
 
       stop = NormalizeDouble(stop, _Digits);
       take = NormalizeDouble(take, _Digits);
+      
+      if (preco < take || stop < preco) {
+         return false;
+      }
 
       if(!trade.Sell(volume,  _Symbol,  preco, stop, take, comentario)) {
-         Print("Erro ao executar venda: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription());
+         Print("Erro ao executar venda: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription(), " - ", comentario);
          return false;
       }
       ordemExecutada = true;
@@ -1642,4 +1660,30 @@ double ValorParaPontos(ulong ticket, double valorReais) {
       return 0;
 
    return valorReais / valorPorPonto;
+}
+
+bool DeveEvitarOperacao(TimeframeConfig &config) {
+   string simbolo = _Symbol;
+   double preco = config.preco;
+
+   double point = SymbolInfoDouble(simbolo, SYMBOL_POINT);
+   int digits = (int)SymbolInfoInteger(simbolo, SYMBOL_DIGITS);
+
+   // Identifica o tamanho de 1 pip
+   double pip = point;
+
+   if(digits == 3 || digits == 5)
+      pip = point * 10.0;
+
+   // Preço convertido para pips
+   double precoPips = preco / pip;
+
+   // Múltiplo de 5 pips mais próximo
+   double nivel = MathRound(precoPips / 5.0) * 5.0;
+
+   // Distância até o nível
+   double distanciaPips = MathAbs(precoPips - nivel);
+
+   // Não operar se estiver até 2 pips do nível
+   return distanciaPips <= 2.0;
 }

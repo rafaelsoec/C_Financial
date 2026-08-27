@@ -173,15 +173,15 @@ input bool ENABLE_CRUZAMENTO = true;
 input bool ENABLE_ENGOLFO = true;
 input bool ENABLE_MEDIAS = true;
 input bool ENABLE_TENDENCIA = true;
-input bool ENABLE_PRICE_VALIDATION = true;
 input int NUMBER_MAX_ROBOT = 2;
 input ulong MAGIC_NUMBER = 97889902933;
 input bool IS_SWING_TRADE = false;
 input bool IS_TEST = false;
 bool IGNORE_MAGIC_NUMBER = true;
+ bool ENABLE_PRICE_VALIDATION = false;
 
 TimeframeConfig configs[];
-ENUM_TIMEFRAMES tfs[] = { PERIOD_M15, PERIOD_M30,PERIOD_H1, PERIOD_H2, PERIOD_H4};
+ENUM_TIMEFRAMES tfs[] = { PERIOD_M10, PERIOD_M15, PERIOD_M30,PERIOD_H1, PERIOD_H2, PERIOD_H4};
 //
 
 int QTD_ITEMS = 15;
@@ -378,7 +378,6 @@ void OnTick() {
       configs[i].preco = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
       if(ENABLE_PRICE_VALIDATION && DeveEvitarOperacao(configs[i])) {
-         Print("Operação bloqueada: preço próximo de nível múltiplo de 5 pips. Atual: ", configs[i].preco);
          return;
       }
 
@@ -464,11 +463,11 @@ void executarEngolfo(TimeframeConfig &config) {
    string comentario = "robotEngolfoTendency_" + EnumToString(config.tf); 
    double lastOpen = config.candles[2].open;
    if(CandlesEmparelhados(config.tf, 3, 200)) {
-      if (!TemPavioMaiorQueCorpo(config.candles[0]) && highAtual > lastOpen && highAtual > config.movingAverage21[0] && config.compraPermitida) {
+      if (!TemPavioMaiorQueCorpo(config.candles[0]) && highAtual > lastOpen && highAtual > config.movingAverage21[0] && config.compraPermitida && !TendenciaTerminou(config, BUY)) {
          double stop = CalcularPontos(precoAtual, lastOpen);
          double take = stop * PROPORTION_TAKE_STOP;
          ExecutarNegociacao(BUY, VOLUME, stop, take, comentario, config.robotEngolfoTendency);
-      } else if (!TemPavioMaiorQueCorpo(config.candles[0]) && lowAtual < lastOpen && lowAtual < config.movingAverage21[0] && config.vendaPermitida) {
+      } else if (!TemPavioMaiorQueCorpo(config.candles[0]) && lowAtual < lastOpen && lowAtual < config.movingAverage21[0] && config.vendaPermitida && !TendenciaTerminou(config, SELL)) {
          double stop = CalcularPontos(precoAtual, lastOpen);
          double take = stop * PROPORTION_TAKE_STOP;
          ExecutarNegociacao(SELL, VOLUME, stop, take, comentario, config.robotEngolfoTendency);
@@ -487,7 +486,7 @@ void executarCruzamento(TimeframeConfig &config) {
    string comentario = "robotCrossTendency_" + EnumToString(config.tf);
    if(config.adxMinusTendency != NONE  && config.adxPlusTendency != NONE && config.adxMinusTendency != config.adxPlusTendency) {
       if (!TemPavioMaiorQueCorpo(config.candles[0]) && IsBearish(config.candles[0])  && config.adxMinusTendency == BUY && config.adxMinus[0] > config.adxPlus[0] && config.adxMinus[4] < config.adxPlus[4]
-            && ((config.movingAverage21[0] > lowAtual && config.movingAverage[0] > lowAtual)) && config.vendaPermitida) {
+            && ((config.movingAverage21[0] > lowAtual && config.movingAverage[0] > lowAtual)) && config.vendaPermitida && !TendenciaTerminou(config, SELL)) {
          MaximosMinimos maxMin = getMinOrMax(1, 3, config.candles);
          double stop =  CalcularPontos(maxMin.high, precoAtual);
          double take = stop * PROPORTION_TAKE_STOP;
@@ -495,7 +494,7 @@ void executarCruzamento(TimeframeConfig &config) {
       }
       
       if (!TemPavioMaiorQueCorpo(config.candles[0]) && IsBullish(config.candles[0]) && config.adxMinusTendency == SELL  && config.adxMinus[0] < config.adxPlus[0]  && config.adxMinus[4] > config.adxPlus[4]
-            && ((config.movingAverage21[0] < highAtual && config.movingAverage[0] < highAtual)) && config.compraPermitida) {
+            && ((config.movingAverage21[0] < highAtual && config.movingAverage[0] < highAtual)) && config.compraPermitida && !TendenciaTerminou(config, BUY)) {
          MaximosMinimos maxMin = getMinOrMax(1, 3, config.candles);
          double stop =  CalcularPontos(maxMin.low, precoAtual);
          double take = stop * PROPORTION_TAKE_STOP;
@@ -515,13 +514,13 @@ void executarMedias(TimeframeConfig &config) {
    
    string comentario = "robotAverageTendency_" + EnumToString(config.tf);
    if (!TemPavioMaiorQueCorpo(config.candles[1]) && IsBearish(config.candles[1]) && IsBearish(config.candles[0]) && config.movingAverage[2] > lowAtual  && config.movingAverage21[0] > lowAtual) {
-     if (config.vendaPermitida) {
+     if (!TendenciaTerminou(config, SELL) && config.vendaPermitida) {
          double stop =  CalcularPontos(config.candles[1].high, precoAtual);
          double take = stop * PROPORTION_TAKE_STOP;
          ExecutarNegociacao(SELL, VOLUME, stop, take, comentario, config.robotAverageTendency);
      }
    } else if (!TemPavioMaiorQueCorpo(config.candles[1]) && IsBullish(config.candles[1]) && IsBullish(config.candles[0]) && config.movingAverage[0] < highAtual  && config.movingAverage21[0] < highAtual) {
-     if (config.compraPermitida) {
+     if (!TendenciaTerminou(config, BUY) && config.compraPermitida) {
          double stop =  CalcularPontos(config.candles[1].low, precoAtual);
          double take = stop * PROPORTION_TAKE_STOP;
          ExecutarNegociacao(BUY, VOLUME, stop, take, comentario, config.robotAverageTendency);
@@ -543,15 +542,15 @@ void executarTendencia(TimeframeConfig &config) {
    
    if(!TemPavioMaiorQueCorpo(config.candles[0]) && IsBearish(config.candles[0]) && initialTendency == -1  && diff){
       if (config.movingAverage[1] > lowAtual && config.movingAverage[2] > lowAtual 
-         && config.adxMinus[0] > config.adxPlus[0] && config.vendaPermitida) {
+         && config.adxMinus[0] > config.adxPlus[0] && config.vendaPermitida && !TendenciaTerminou(config, SELL)) {
          MaximosMinimos maxMin = getMinOrMax(1, QTD_CANDLES, config.candles);
          double stop =  CalcularPontos(maxMin.high, precoAtual);
          double take = stop * PROPORTION_TAKE_STOP;
          ExecutarNegociacao(SELL, VOLUME, stop, take, comentario, config.robotTendency);
       }
    } else  if(!TemPavioMaiorQueCorpo(config.candles[0]) && IsBullish(config.candles[0]) && initialTendency == 1 && diff ){
-      if (config.movingAverage[1] < highAtual && config.movingAverage[2] < highAtual 
-         && config.adxPlus[0] > config.adxMinus[0] && config.compraPermitida) {
+      if (config.movingAverage[1] < highAtual && config.compraPermitida && config.movingAverage[2] < highAtual 
+         && config.adxPlus[0] > config.adxMinus[0] && !TendenciaTerminou(config, BUY)) {
          MaximosMinimos maxMin = getMinOrMax(1, QTD_CANDLES, config.candles);
          double stop =  CalcularPontos(maxMin.low, precoAtual);
          double take = stop * PROPORTION_TAKE_STOP;
@@ -1686,4 +1685,101 @@ bool DeveEvitarOperacao(TimeframeConfig &config) {
 
    // Não operar se estiver até 2 pips do nível
    return distanciaPips <= 2.0;
+}
+
+bool TendenciaTerminou(TimeframeConfig &config, TypeNegotiation tipo) {
+   // ---------------------------------------------------------
+   // 1. PERDA DA ESTRUTURA
+   // ---------------------------------------------------------
+
+   bool perdeuEstrutura = false;
+
+   if(tipo == BUY) {
+      // Último fundo ficou abaixo do fundo anterior
+      if(config.candles[1].low < config.candles[3].low)
+         perdeuEstrutura = true;
+   }
+   else {
+      // Último topo ficou acima do topo anterior
+      if(config.candles[1].high > config.candles[3].high)
+         perdeuEstrutura = true;
+   }
+
+   // ---------------------------------------------------------
+   // 2. PREÇO CRUZOU A MÉDIA RÁPIDA
+   // ---------------------------------------------------------
+
+   bool cruzouMedia = false;
+   if(tipo == BUY) {
+      if(config.candles[2].close > config.movingAverage[2] &&
+         config.candles[1].close < config.movingAverage[1]) {
+         cruzouMedia = true;
+      }
+   } else {
+      if(config.candles[2].close < config.movingAverage[2] &&
+         config.candles[1].close > config.movingAverage[1])  {
+         cruzouMedia = true;
+      }
+   }
+
+   // ---------------------------------------------------------
+   // 3. CANDLE FORTE CONTRA A TENDÊNCIA
+   // ---------------------------------------------------------
+
+   double corpo = MathAbs(config.candles[1].close - config.candles[1].open);
+   double range = config.candles[1].high - config.candles[1].low;
+
+   bool candleContrario = false;
+
+   if(range > 0) {
+      double percentualCorpo = corpo / range;
+
+      if(tipo == BUY) {
+         if(config.candles[1].close < config.candles[1].open &&
+            percentualCorpo >= 0.60)
+         {
+            candleContrario = true;
+         }
+      } else  {
+         if(config.candles[1].close > config.candles[1].open &&
+            percentualCorpo >= 0.60)
+         {
+            candleContrario = true;
+         }
+      }
+   }
+
+   // ---------------------------------------------------------
+   // 4. ADX PERDENDO FORÇA
+   // ---------------------------------------------------------
+
+   bool adxPerdendoForca = false;
+   // ADX caiu nos últimos candles
+   if(config.adx[1] < config.adx[2] && config.adx[2] < config.adx[3]) {
+      adxPerdendoForca = true;
+   }
+
+   // ---------------------------------------------------------
+   // CONTAGEM DOS SINAIS
+   // ---------------------------------------------------------
+
+   int sinais = 0;
+
+   if(perdeuEstrutura)
+      sinais++;
+
+   if(cruzouMedia)
+      sinais++;
+
+   if(candleContrario)
+      sinais++;
+
+   if(adxPerdendoForca)
+      sinais++;
+
+   // ---------------------------------------------------------
+   // 2 OU MAIS SINAIS = TENDÊNCIA POSSIVELMENTE TERMINOU
+   // ---------------------------------------------------------
+
+   return sinais >= 2;
 }

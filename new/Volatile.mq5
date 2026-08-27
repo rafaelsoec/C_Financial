@@ -586,7 +586,7 @@ bool ExecutarNegociacao(TypeNegotiation tipoNegociacao, double volume,  double p
          return false;
       }
 
-      AjustarStopTake(SELL, stop, take);
+      AjustarStopTake(BUY, stop, take);
       if(!trade.Buy(volume,  _Symbol,  preco, stop,  take, comentario)) {
          Print("Erro ao executar compra: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription(), " - ", comentario);
          return false;
@@ -1472,9 +1472,9 @@ void MoveStopPorPontos() {
       
       if (tpAtual <= 0 || slAtual <= 0) {
          double points = ValorParaPontos(ticket, LOSS_PER_DAY);
-         tpAtual = tpAtual <= 0 ? CalcularPreco(currentPrice, (entry == POSITION_TYPE_BUY ? points : -points)) : tpAtual;
-         slAtual = slAtual <= 0 ? CalcularPreco(currentPrice, (entry == POSITION_TYPE_BUY ? -points : points)) : slAtual;  
-         AjustarStopTake(BUY, slAtual, tpAtual);
+         tpAtual = tpAtual <= 0 ? CalcularPreco(currentPrice, (type == POSITION_TYPE_BUY ? points : -points)) : tpAtual;
+         slAtual = slAtual <= 0 ? CalcularPreco(currentPrice, (type == POSITION_TYPE_BUY ? -points : points)) : slAtual; 
+         AjustarStopTake(type == POSITION_TYPE_BUY ? BUY : SELL, novoSL, tpAtual);
          trade.PositionModify(ticket, slAtual, tpAtual);
       }
       

@@ -133,6 +133,7 @@ struct TimeframeConfig
    TimeFrameRobot robotAverageTendency;
    TimeFrameRobot robotEngolfoTendency;
    TimeFrameRobot robotCrossTendency;
+   TimeFrameRobot robotScalpe;
    ulong magicNumber;
    double atr[15];
    double movingAverage[15];
@@ -173,6 +174,8 @@ input bool ENABLE_CRUZAMENTO = true;
 input bool ENABLE_ENGOLFO = true;
 input bool ENABLE_MEDIAS = true;
 input bool ENABLE_TENDENCIA = true;
+ bool ENABLE_SCALPE = false;
+input bool DISABLE_END_TENDENCY = true;
 input int NUMBER_MAX_ROBOT = 2;
 input ulong MAGIC_NUMBER = 97889902933;
 input bool IS_SWING_TRADE = false;
@@ -269,13 +272,14 @@ void recuperarEstimativasRobo(int &results[]) {
       results[1] += configs[i].robotCrossTendency.counterPositions;
       results[2] += configs[i].robotEngolfoTendency.counterPositions;
       results[3] += configs[i].robotTendency.counterPositions;
+      results[4] += configs[i].robotScalpe.counterPositions;
       
    }
 }
 
 void showComments(){
    double profit = AccountInfoDouble(ACCOUNT_PROFIT);
-   int results[4];
+   int results[7];
    
    recuperarEstimativasRobo(results);
    Comment(
@@ -315,6 +319,7 @@ int OnInit() {
       iniciarRobos(configs[i].robotEngolfoTendency);
       iniciarRobos(configs[i].robotCrossTendency);
       iniciarRobos(configs[i].robotAverageTendency);
+      iniciarRobos(configs[i].robotScalpe);
       iniciarRobos(configs[i].robotTendency);
    }
 
@@ -340,6 +345,8 @@ void OnTick() {
          configs[i].robotEngolfoTendency.inLoss = false;
          configs[i].robotAverageTendency.inLoss = false;
          configs[i].robotCrossTendency.inLoss = false;
+         configs[i].robotScalpe.inLoss = false;
+         
       }
    }
    
@@ -376,10 +383,10 @@ void OnTick() {
    
    for(int i = 0; i < ArraySize(configs); i++)  {
       configs[i].preco = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-
+/*
       if(ENABLE_PRICE_VALIDATION && DeveEvitarOperacao(configs[i])) {
          return;
-      }
+      }*/
 
       // Continua a lógica da operação
       if(!GetLastClosedCandles(configs[i].tf, configs[i].candles)) {
@@ -418,6 +425,8 @@ void OnTick() {
          resetarRobo(configs[i].robotAverageTendency, total);
          resetarRobo(configs[i].robotCrossTendency, total);
          resetarRobo(configs[i].robotTendency, total);
+         resetarRobo(configs[i].robotScalpe, total);
+         
          DesenharMaximoMinimoMaisTocados(configs[i], 15, 10);
          NOVA_NOTICIA_AGUARDANDO = false;
       }
@@ -426,12 +435,10 @@ void OnTick() {
          return;
       }
       
-      
       int remainingSeconds = calcularCandleTime(configs[i].tf);
-      if (remainingSeconds < configs[i].tfSeconds * 0.4) {
+      if (remainingSeconds < configs[i].tfSeconds * 0.8) {
          configs[i].vendaPermitida = (!VerificarTimeframeAnterior(SELL, configs[i].tfAnterior) || !verificarBordas(configs[i], SELL));
          configs[i].compraPermitida = (!VerificarTimeframeAnterior(BUY, configs[i].tfAnterior) || !verificarBordas(configs[i], BUY));
-        
          if (ENABLE_ENGOLFO) {
             executarEngolfo(configs[i]);
          }
@@ -447,7 +454,13 @@ void OnTick() {
          if (ENABLE_TENDENCIA) {
             executarTendencia(configs[i]);
          }
+         
+         if (ENABLE_SCALPE) {
+           executarEscalpe(configs[i]);
+         }
+         
       }
+      /**/
  
    }
 } 
@@ -474,6 +487,28 @@ void executarEngolfo(TimeframeConfig &config) {
       }
    }
 }
+
+void executarEscalpe(TimeframeConfig &config) {
+   double precoAtual = config.candles[0].close;
+   double highAtual = config.candles[0].high;
+   double lowAtual = config.candles[0].low;
+   if (invalidarExecucao(config.robotScalpe)){
+      return;
+   }
+   
+   string comentario = "robotEngolfoTendency_" + EnumToString(config.tf); 
+   double lastOpen = config.candles[2].open;
+   if(SinalScalp(config, BUY)) {
+      double stop = CalcularPontos(precoAtual, lastOpen);
+      double take = stop * PROPORTION_TAKE_STOP;
+      ExecutarNegociacao(BUY, VOLUME, stop, take, comentario, config.robotScalpe);
+   } else if (SinalScalp(config, SELL)) {
+      double stop = CalcularPontos(precoAtual, lastOpen);
+      double take = stop * PROPORTION_TAKE_STOP;
+      ExecutarNegociacao(SELL, VOLUME, stop, take, comentario, config.robotScalpe);
+   }
+}
+
 
 void executarCruzamento(TimeframeConfig &config) {
    double precoAtual = config.candles[0].close;
@@ -1474,7 +1509,7 @@ void MoveStopPorPontos() {
          double points = ValorParaPontos(ticket, LOSS_PER_DAY);
          tpAtual = tpAtual <= 0 ? CalcularPreco(currentPrice, (type == POSITION_TYPE_BUY ? points : -points)) : tpAtual;
          slAtual = slAtual <= 0 ? CalcularPreco(currentPrice, (type == POSITION_TYPE_BUY ? -points : points)) : slAtual; 
-         AjustarStopTake(type == POSITION_TYPE_BUY ? BUY : SELL, novoSL, tpAtual);
+         AjustarStopTake(type == POSITION_TYPE_BUY ? BUY : SELL, slAtual, tpAtual);
          trade.PositionModify(ticket, slAtual, tpAtual);
       }
       
@@ -1695,6 +1730,9 @@ bool DeveEvitarOperacao(TimeframeConfig &config) {
 }
 
 bool TendenciaTerminou(TimeframeConfig &config, TypeNegotiation tipo) {
+   if (DISABLE_END_TENDENCY) {
+      return false;
+   }
    // ---------------------------------------------------------
    // 1. PERDA DA ESTRUTURA
    // ---------------------------------------------------------
@@ -1837,4 +1875,79 @@ double ObterExtremo(TimeframeConfig &config,  int n, bool buscarHigh ) {
    }
 
    return extremo;
+}
+
+bool SinalScalp(TimeframeConfig &config, TypeNegotiation tipo ){
+   string simbolo = _Symbol;
+   ENUM_TIMEFRAMES timeframe = config.tf;
+   // =====================================================
+
+   if(tipo == BUY) {
+      // Candle de impulso
+      double corpo1 = MathAbs(config.candles[3].close - config.candles[3].open);
+      double range1 = config.candles[3].high - config.candles[3].low;
+
+      if(range1 <= 0)
+         return false;
+
+      bool impulso =
+         config.candles[3].close > config.candles[3].open &&
+         corpo1 / range1 >= 0.60;
+
+      // Candle seguinte ainda mostrando força
+      bool continuidade =
+         config.candles[2].close > config.candles[2].open &&
+         config.candles[2].close > config.candles[3].close;
+
+      // Pullback
+      bool pullback =
+         config.candles[1].close < config.candles[1].open &&
+         config.candles[1].low > config.candles[3].low;
+
+      // Candle de retomada
+      bool retomada =
+         config.candles[0].close > config.candles[0].open &&
+         config.candles[0].close > config.candles[1].high;
+
+      return impulso &&
+             continuidade &&
+             pullback &&
+             retomada;
+   }
+
+   // =====================================================
+   // VENDA
+   // =====================================================
+
+   if(tipo == SELL)
+   {
+      double corpo1 = MathAbs(config.candles[3].close - config.candles[3].open);
+      double range1 = config.candles[3].high - config.candles[3].low;
+
+      if(range1 <= 0)
+         return false;
+
+      bool impulso =
+         config.candles[3].close < config.candles[3].open &&
+         corpo1 / range1 >= 0.60;
+
+      bool continuidade =
+         config.candles[2].close < config.candles[2].open &&
+         config.candles[2].close < config.candles[3].close;
+
+      bool pullback =
+         config.candles[1].close > config.candles[1].open &&
+         config.candles[1].high < config.candles[3].high;
+
+      bool retomada =
+         config.candles[0].close < config.candles[0].open &&
+         config.candles[0].close < config.candles[1].low;
+
+      return impulso &&
+             continuidade &&
+             pullback &&
+             retomada;
+   }
+
+   return false;
 }

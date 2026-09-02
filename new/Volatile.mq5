@@ -199,7 +199,7 @@ double BALANCE = 0;
 bool MAX_LOSS_ATINGIDO = false;
 bool ENABLE_TIMEFRAME_MULTIPLIER = false;
 bool ENABLE_ROMPIMENTO_BORDA = false;
-datetime NOVA_NOTICIA_AGUARDANDO = TimeCurrent();
+datetime NOVA_NOTICIA_AGUARDANDO =  D'2000.01.01 00:00:00';
 
 //
 //+------------------------------------------------------------------+

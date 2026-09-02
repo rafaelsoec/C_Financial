@@ -169,10 +169,10 @@ struct MaximosMinimos
 };
 
 input int QTD_CANDLES = 5;
-input double VOLUME = 0.05;
-input double LOSS_PER_DAY = 1200;
-input ATR_TYPE ATR_MINIMUM = ATR_0_5;
-input MOVE_STOP_TYPE MOVE_STOP = MOVE_STOP_30;
+ double VOLUME = 0.05;
+ double LOSS_PER_DAY = 500;
+ ATR_TYPE ATR_MINIMUM = ATR_0_5;
+ MOVE_STOP_TYPE MOVE_STOP = MOVE_STOP_20;
 input double PROPORTION_TAKE_STOP = 2;
 input bool ENABLE_CRUZAMENTO = true;
 input bool ENABLE_ENGOLFO = true;
@@ -198,7 +198,7 @@ double BALANCE = 0;
 bool MAX_LOSS_ATINGIDO = false;
 bool ENABLE_TIMEFRAME_MULTIPLIER = false;
 bool ENABLE_ROMPIMENTO_BORDA = false;
-bool NOVA_NOTICIA_AGUARDANDO = false;
+datetime NOVA_NOTICIA_AGUARDANDO = TimeCurrent();
 
 //
 //+------------------------------------------------------------------+
@@ -358,9 +358,8 @@ void OnTick() {
               return;  
             }
             
-            if (!NOVA_NOTICIA_AGUARDANDO && ExisteProximaNoticia(_Symbol, 30)) {
+            if (ExisteProximaNoticia(_Symbol, 30)) {
               printf("Noticia nos proximos 30 minutos!");
-              NOVA_NOTICIA_AGUARDANDO = true;
               return;  
             }
          }
@@ -1589,18 +1588,26 @@ bool SimboloVaiFechar(string simbolo, int minutes) {
 bool ExisteProximaNoticia(string simbolo, int minutos){
    datetime agora = TimeTradeServer();
    datetime limite = agora + (minutos * 60);
+   int minutesCalc = MinutosEntreDatas(NOVA_NOTICIA_AGUARDANDO, agora);
+   
+   if (minutesCalc <= minutos) {
+      printf("Noticia em andamento");
+      return true;
+   }
 
    string moedaBase   = SymbolInfoString(simbolo, SYMBOL_CURRENCY_BASE);
    string moedaProfit = SymbolInfoString(simbolo, SYMBOL_CURRENCY_PROFIT);
 
    if(ExisteNoticiaMoeda(moedaBase, agora, limite)) {
       printf("Tem Noticia");
+      NOVA_NOTICIA_AGUARDANDO = agora;
       return true;
    }
 
    if(moedaProfit != "" && moedaProfit != moedaBase) {
       if(ExisteNoticiaMoeda(moedaProfit, agora, limite)) {
-      printf("Tem Noticia");
+         printf("Tem Noticia");
+         NOVA_NOTICIA_AGUARDANDO = agora;
          return true;
       }
    }
@@ -2072,4 +2079,8 @@ TimeFrameCandle countPositionsInProfit(TypeNegotiation typeN) {
    }
    
    return bordas;
+}
+
+int MinutosEntreDatas(datetime data1, datetime data2) {
+   return (int)MathAbs((double)(data2 - data1) / 60.0);
 }

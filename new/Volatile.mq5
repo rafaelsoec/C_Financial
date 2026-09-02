@@ -169,16 +169,17 @@ struct MaximosMinimos
 };
 
 input int QTD_CANDLES = 5;
- double VOLUME = 0.05;
- double LOSS_PER_DAY = 500;
- ATR_TYPE ATR_MINIMUM = ATR_0_5;
- MOVE_STOP_TYPE MOVE_STOP = MOVE_STOP_20;
+input double VOLUME = 0.05;
+input double LOSS_PER_DAY = 1200;
+input ATR_TYPE ATR_MINIMUM = ATR_0_5;
+input MOVE_STOP_TYPE MOVE_STOP = MOVE_STOP_30;
 input double PROPORTION_TAKE_STOP = 2;
 input bool ENABLE_CRUZAMENTO = true;
 input bool ENABLE_ENGOLFO = true;
 input bool ENABLE_MEDIAS = true;
 input bool ENABLE_TENDENCIA = true;
 input bool ENABLE_MULT_ROBOTS = true;
+input bool IGNORAR_NOTICIAS = false;
  bool ENABLE_SCALPE = false;
 input bool DISABLE_END_TENDENCY = true;
 input int NUMBER_MAX_ROBOT = 2;
@@ -358,7 +359,7 @@ void OnTick() {
               return;  
             }
             
-            if (ExisteProximaNoticia(_Symbol, 30)) {
+            if (!IGNORAR_NOTICIAS && ExisteProximaNoticia(_Symbol, 30)) {
               printf("Noticia nos proximos 30 minutos!");
               return;  
             }
@@ -419,7 +420,6 @@ void OnTick() {
          resetarRobo(configs[i].robotMulti, total);
          
          DesenharMaximoMinimoMaisTocados(configs[i], 15, 10);
-         NOVA_NOTICIA_AGUARDANDO = false;
       }
       
       if(getVolumeAtr(configs[i]) == 0) {

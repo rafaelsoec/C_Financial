@@ -282,14 +282,22 @@ void showComments(){
          );
 }
 
+
 void OnChartEvent(const int id,
                   const long &lparam,
                   const double &dparam,
                   const string &sparam){
+   if(id == CHARTEVENT_OBJECT_CLICK){
+      if(sparam == "btnCloseAll"){
+         closeAll();
+      }
+    
+   }
 }
 
 //+------------------------------------------------------------------+
 int OnInit() { 
+   generateButtons();
    ArrayResize(configs, ArraySize(tfs));
    for(int i = 0; i < ArraySize(tfs); i++) {
       configs[i].tf = tfs[i];
@@ -2115,4 +2123,24 @@ TimeFrameCandle countPositionsInProfit(TypeNegotiation typeN) {
 
 int MinutosEntreDatas(datetime data1, datetime data2) {
    return (int)MathAbs((double)(data2 - data1) / 60.0);
+}
+
+
+void generateButtons(){
+      createButton("btnCloseAll", 50, 400, 300, 30, CORNER_LEFT_LOWER, 12, "Arial", "Fechar Negociacoes", clrWhite, clrBlueViolet, clrBlueViolet, false);
+}
+
+void createButton(string nameLine, int xx, int yy, int largura, int altura, int canto, int tamanho, string fonte, string text, long corTexto, long corFundo, long corBorda, bool oculto){
+   ObjectCreate(ChartID(),nameLine,OBJ_BUTTON,0,0,0);
+   ObjectSetInteger(0,nameLine,OBJPROP_XDISTANCE,xx);
+   ObjectSetInteger(0,nameLine,OBJPROP_YDISTANCE, yy);
+   ObjectSetInteger(0,nameLine,OBJPROP_XSIZE, largura);
+   ObjectSetInteger(0,nameLine,OBJPROP_YSIZE, altura);
+   ObjectSetInteger(0,nameLine,OBJPROP_CORNER, canto);
+   ObjectSetInteger(0,nameLine,OBJPROP_FONTSIZE, tamanho);
+   ObjectSetString(0,nameLine,OBJPROP_FONT, fonte);
+   ObjectSetString(0,nameLine,OBJPROP_TEXT, text);
+   ObjectSetInteger(0,nameLine,OBJPROP_COLOR, corTexto);
+   ObjectSetInteger(0,nameLine,OBJPROP_BGCOLOR, corFundo);
+   ObjectSetInteger(0,nameLine,OBJPROP_BORDER_COLOR, corBorda);
 }

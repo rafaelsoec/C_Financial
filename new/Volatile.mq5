@@ -200,7 +200,7 @@ bool MAX_LOSS_ATINGIDO = false;
 bool ENABLE_TIMEFRAME_MULTIPLIER = false;
 bool ENABLE_ROMPIMENTO_BORDA = false;
 datetime NOVA_NOTICIA_AGUARDANDO =  D'2000.01.01 00:00:00';
-
+bool habilitaMultiRobots = true;
 //
 //+------------------------------------------------------------------+
 ulong GetMagicNumberByTimeframe(ENUM_TIMEFRAMES tf) {
@@ -367,8 +367,13 @@ void OnTick() {
       }
    }
    
+   
    if (MOVE_STOP != MOVE_STOP_NONE) {
       MoveStopPorPontos();
+   }
+   
+   if (HasNewCandle(PERIOD_M5)) {
+      habilitaMultiRobots = true;
    }
    
    for(int i = 0; i < ArraySize(configs); i++)  {
@@ -931,6 +936,29 @@ bool IsNewBar(TimeframeConfig &config) {
 
    return false;
 }
+
+bool HasNewCandle(ENUM_TIMEFRAMES timeframe){
+   static datetime lastCandleTime[];
+
+   // Inicializa array se necessário
+   if(ArraySize(lastCandleTime) == 0)
+   {
+      ArrayResize(lastCandleTime, PERIOD_MN1 + 1);
+      ArrayInitialize(lastCandleTime, 0);
+   }
+
+   datetime currentCandle = iTime(_Symbol, timeframe, 0);
+
+   // Novo candle detectado
+   if(lastCandleTime[timeframe] != currentCandle)
+   {
+      lastCandleTime[timeframe] = currentCandle;
+      return true;
+   }
+
+   return false;
+}
+
 
 bool GetLastClosedCandles(ENUM_TIMEFRAMES tf, MqlRates &candles[]) {
    ArraySetAsSeries(candles, true);
@@ -2008,6 +2036,11 @@ TypeNegotiation AnalisarCandles(TimeframeConfig &config, int quantidadeCandles) 
 void executarMultiRobos(TimeframeConfig &config){
    int countBuy = 0;
    int countSell = 0;
+   
+   if (!habilitaMultiRobots) {
+      return;
+   }
+   
    if (invalidarExecucao(config.robotMulti)){
       return;
    }
@@ -2029,11 +2062,13 @@ void executarMultiRobos(TimeframeConfig &config){
       TimeFrameCandle bordas = countPositionsInProfit(SELL);
       if (bordas.counter > 0) {
          ExecutarNegociacao(SELL, VOLUME, bordas.stop, bordas.take, comentario, config.robotMulti);
+         habilitaMultiRobots = false;
       }
    } else if (countBuy >= qtdTfs) {
       TimeFrameCandle bordas = countPositionsInProfit(BUY);
       if (bordas.counter > 0) {
          ExecutarNegociacao(BUY, VOLUME, bordas.stop, bordas.take, comentario, config.robotMulti);
+         habilitaMultiRobots = false;
       }
    }
 }

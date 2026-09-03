@@ -169,10 +169,10 @@ struct MaximosMinimos
 };
 
 input int QTD_CANDLES = 5;
-input double VOLUME = 0.05;
-input double LOSS_PER_DAY = 1200;
-input ATR_TYPE ATR_MINIMUM = ATR_0_5;
-input MOVE_STOP_TYPE MOVE_STOP = MOVE_STOP_30;
+ double VOLUME = 0.05;
+ double LOSS_PER_DAY = 500;
+ ATR_TYPE ATR_MINIMUM = ATR_0_5;
+ MOVE_STOP_TYPE MOVE_STOP = MOVE_STOP_30;
 input double PROPORTION_TAKE_STOP = 2;
 input bool ENABLE_CRUZAMENTO = true;
 input bool ENABLE_ENGOLFO = true;

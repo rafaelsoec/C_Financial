@@ -291,6 +291,9 @@ void OnChartEvent(const int id,
       if(sparam == "btnCloseAll"){
          closeAll();
       }
+      if(sparam == "btnProtectAll"){
+         protectPositions(15);
+      }
     
    }
 }
@@ -1485,6 +1488,48 @@ void closeAll(){
    }
 }
 
+void protectPositions(double points = 0){
+   int pos = PositionsTotal() - 1;
+   for(int i = pos; i >= 0; i--)  {
+      moveStopToZeroPlusPoint(i, points);
+   }
+}
+
+void  moveStopToZeroPlusPoint(int position = 0, double points = 0){
+   double newSlPrice = 0;
+   if(hasPositionOpen(position)){ 
+      ulong ticket = PositionGetTicket(position);
+      PositionSelectByTicket(ticket);
+      ulong magicNumber = PositionGetInteger(POSITION_MAGIC);
+      if(IGNORE_MAGIC_NUMBER || MAGIC_NUMBER == magicNumber){
+         double tpPrice = PositionGetDouble(POSITION_TP);
+         double slPrice = PositionGetDouble(POSITION_SL);
+         double entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+         double currentPrice = PositionGetDouble(POSITION_PRICE_CURRENT);
+         
+         if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
+            if(slPrice < entryPrice){
+               if(currentPrice > entryPrice+(points*_Point)){
+                  trade.PositionModify(ticket, entryPrice+(points*_Point), tpPrice);
+               }
+               else{
+                  trade.PositionModify(ticket, entryPrice, tpPrice);
+               }
+            }
+         }else if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){
+            if(slPrice > entryPrice){
+               if(currentPrice < entryPrice-(points*_Point)){
+                  trade.PositionModify(ticket, entryPrice-(points*_Point), tpPrice);
+               }
+               else{
+                  trade.PositionModify(ticket, entryPrice, tpPrice);
+               }
+            }
+         }
+      }
+   }
+}
+
 //+------------------------------------------------------------------+
 //| Move o Stop Loss por pontos                                      |
 //| pontos = distância em pontos do preço atual                      |
@@ -2127,7 +2172,8 @@ int MinutosEntreDatas(datetime data1, datetime data2) {
 
 
 void generateButtons(){
-      createButton("btnCloseAll", 50, 400, 300, 30, CORNER_LEFT_LOWER, 12, "Arial", "Fechar Negociacoes", clrWhite, clrBlueViolet, clrBlueViolet, false);
+   createButton("btnProtectAll", 50, 340, 300, 30, CORNER_LEFT_LOWER, 12, "Arial", "Proteger Negociações", clrWhite, clrGreen, clrGreen, false);
+   createButton("btnCloseAll", 50, 380, 300, 30, CORNER_LEFT_LOWER, 12, "Arial", "Fechar Negociacoes", clrWhite, clrBlueViolet, clrBlueViolet, false);
 }
 
 void createButton(string nameLine, int xx, int yy, int largura, int altura, int canto, int tamanho, string fonte, string text, long corTexto, long corFundo, long corBorda, bool oculto){

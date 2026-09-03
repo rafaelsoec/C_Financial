@@ -200,7 +200,7 @@ bool MAX_LOSS_ATINGIDO = false;
 bool ENABLE_TIMEFRAME_MULTIPLIER = false;
 bool ENABLE_ROMPIMENTO_BORDA = false;
 datetime NOVA_NOTICIA_AGUARDANDO =  D'2000.01.01 00:00:00';
-bool habilitaMultiRobots = true;
+bool habilitaMultiRobots = D'2000.01.01 00:00:00';
 //
 //+------------------------------------------------------------------+
 ulong GetMagicNumberByTimeframe(ENUM_TIMEFRAMES tf) {
@@ -305,12 +305,12 @@ int OnInit() {
       configs[i].compraPermitida = true;
       configs[i].tendencia = NONE;
       
-      iniciarRobos(configs[i].robotEngolfoTendency);
-      iniciarRobos(configs[i].robotCrossTendency);
-      iniciarRobos(configs[i].robotAverageTendency);
-      iniciarRobos(configs[i].robotScalpe);
-      iniciarRobos(configs[i].robotTendency);
-      iniciarRobos(configs[i].robotMulti);
+      iniciarRobos(configs[i].robotEngolfoTendency, NUMBER_MAX_ROBOT);
+      iniciarRobos(configs[i].robotCrossTendency, NUMBER_MAX_ROBOT);
+      iniciarRobos(configs[i].robotAverageTendency, NUMBER_MAX_ROBOT);
+      iniciarRobos(configs[i].robotScalpe, NUMBER_MAX_ROBOT);
+      iniciarRobos(configs[i].robotTendency, NUMBER_MAX_ROBOT);
+      iniciarRobos(configs[i].robotMulti, 1);
    }
 
    Print("Family MJ MultiTF iniciado com sucesso.");
@@ -370,10 +370,6 @@ void OnTick() {
    
    if (MOVE_STOP != MOVE_STOP_NONE) {
       MoveStopPorPontos();
-   }
-   
-   if (HasNewCandle(PERIOD_M5)) {
-      habilitaMultiRobots = true;
    }
    
    for(int i = 0; i < ArraySize(configs); i++)  {
@@ -786,12 +782,12 @@ bool verificarPerdaRobo(TimeFrameRobot &robot, int max, double precoAtual) {
    return counter >= max;
 }
 
-void iniciarRobos(TimeFrameRobot &robot) {
+void iniciarRobos(TimeFrameRobot &robot, int number) {
    robot.inLoss = false;
    robot.counter = 0;
    robot.counterPositions = 0;
    robot.waitNewCandle = false;
-   robot.maxRobots = NUMBER_MAX_ROBOT;
+   robot.maxRobots = number;
    robot.isNull = false;
    
    for(int j = 0; j < ArraySize(robot.historic); j++) {
@@ -2037,7 +2033,8 @@ void executarMultiRobos(TimeframeConfig &config){
    int countBuy = 0;
    int countSell = 0;
    
-   if (!habilitaMultiRobots) {
+   datetime agora = TimeTradeServer();
+   if (MinutosEntreDatas(habilitaMultiRobots, agora) <= 5) {
       return;
    }
    
@@ -2058,17 +2055,17 @@ void executarMultiRobos(TimeframeConfig &config){
    int qtdTfs = ArraySize(tfs) / 2;
    string comentario = "robotMulti_" + EnumToString(config.tf); 
 
+   TimeFrameCandle bordasSell = countPositionsInProfit(SELL);
+   TimeFrameCandle bordasBuy = countPositionsInProfit(BUY);
    if (countSell >= qtdTfs) {
-      TimeFrameCandle bordas = countPositionsInProfit(SELL);
-      if (bordas.counter > 0) {
-         ExecutarNegociacao(SELL, VOLUME, bordas.stop, bordas.take, comentario, config.robotMulti);
-         habilitaMultiRobots = false;
+      if (bordasSell.counter > 0 && bordasSell.counter > bordasBuy.counter) {
+         ExecutarNegociacao(SELL, VOLUME, bordasSell.stop, bordasSell.take, comentario, config.robotMulti);
+         habilitaMultiRobots = agora;
       }
    } else if (countBuy >= qtdTfs) {
-      TimeFrameCandle bordas = countPositionsInProfit(BUY);
-      if (bordas.counter > 0) {
-         ExecutarNegociacao(BUY, VOLUME, bordas.stop, bordas.take, comentario, config.robotMulti);
-         habilitaMultiRobots = false;
+      if (bordasBuy.counter > 0 && bordasSell.counter < bordasBuy.counter) {
+         ExecutarNegociacao(BUY, VOLUME, bordasBuy.stop, bordasBuy.take, comentario, config.robotMulti);
+         habilitaMultiRobots = agora;
       }
    }
 }

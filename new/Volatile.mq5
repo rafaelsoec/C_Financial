@@ -5,33 +5,6 @@
 
 #include <Trade/Trade.mqh>
 
-struct BordersOperation {
-   double max;
-   double min;
-   double central;
-   bool instantiated;
-};
-
-struct RegiaoExtremo{
-   double precoMin;
-   double precoMax;
-   double precoMedio;
-
-   int quantidade;
-   int primeiroShift;
-   int ultimoShift;
-
-   datetime primeiroTempo;
-   datetime ultimoTempo;
-};
-
-struct LossTrade {
-   datetime closeTime;
-   double profit;
-   ENUM_DEAL_TYPE type;
-   double price;
-};
-
 enum VOLATILITY {
    VERY_LOW,
    LOW,
@@ -86,6 +59,33 @@ enum LEVEL{
    L2,
    L3
  };
+
+struct BordersOperation {
+   double max;
+   double min;
+   double central;
+   bool instantiated;
+};
+
+struct RegiaoExtremo{
+   double precoMin;
+   double precoMax;
+   double precoMedio;
+
+   int quantidade;
+   int primeiroShift;
+   int ultimoShift;
+
+   datetime primeiroTempo;
+   datetime ultimoTempo;
+};
+
+struct LossTrade {
+   datetime closeTime;
+   double profit;
+   ENUM_DEAL_TYPE type;
+   double price;
+};
  
 enum TypeNegotiation{
    BUY,
@@ -99,6 +99,19 @@ enum VolumeLevel
    VOLUME_NORMAL,
    VOLUME_HIGH
 };
+
+struct Pattern {
+   MqlRates secLastCandle;
+   MqlRates thirdLastCandle;
+   MqlRates lastCandle;
+   MqlRates actualCandle;
+   TypeNegotiation thirdLastCandleOrientation;
+   TypeNegotiation secLastCandleOrientation;
+   TypeNegotiation lastCandleOrientation;
+   TypeNegotiation actualCandleOrientation;
+   bool anyNone;
+};
+
 
 struct TimeFrameCandle {
    bool win;
@@ -123,10 +136,11 @@ struct TimeFrameRobot {
 };
 
 CTrade trade;
-struct TimeframeConfig
-{
+struct TimeframeConfig {
    ENUM_TIMEFRAMES tf;
    ENUM_TIMEFRAMES tfAnterior;
+   Pattern pattern;
+   Pattern patternAnterior;
    int tfSeconds;
    int cciHandle;
    double multiplier;
@@ -137,6 +151,7 @@ struct TimeframeConfig
    TimeFrameRobot robotCrossTendency;
    TimeFrameRobot robotScalpe;
    TimeFrameRobot robotMulti;
+   TimeFrameRobot robotPatterns;
    ulong magicNumber;
    double atr[15];
    double movingAverage[15];
@@ -169,14 +184,15 @@ struct MaximosMinimos
 };
 
 input int QTD_CANDLES = 5;
- double VOLUME = 0.05;
- double LOSS_PER_DAY = 500;
- ATR_TYPE ATR_MINIMUM = ATR_0_5;
- MOVE_STOP_TYPE MOVE_STOP = MOVE_STOP_30;
+input double VOLUME = 0.05;
+input double LOSS_PER_DAY = 500;
+input ATR_TYPE ATR_MINIMUM = ATR_0_5;
+input MOVE_STOP_TYPE MOVE_STOP = MOVE_STOP_50;
 input double PROPORTION_TAKE_STOP = 2;
 input bool ENABLE_CRUZAMENTO = true;
 input bool ENABLE_ENGOLFO = true;
 input bool ENABLE_MEDIAS = true;
+input bool ENABLE_PATTERNS = true;
 input bool ENABLE_TENDENCIA = true;
 input bool ENABLE_MULT_ROBOTS = true;
 input bool IGNORAR_NOTICIAS = false;
@@ -190,7 +206,7 @@ bool IGNORE_MAGIC_NUMBER = true;
  bool ENABLE_PRICE_VALIDATION = false;
 
 TimeframeConfig configs[];
-ENUM_TIMEFRAMES tfs[] = { PERIOD_M15, PERIOD_M20, PERIOD_M30, PERIOD_H1};
+ENUM_TIMEFRAMES tfs[] = { PERIOD_M10, PERIOD_M15, PERIOD_M20, PERIOD_M30, PERIOD_H1};
 //
 
 int QTD_ITEMS = 15;
@@ -260,7 +276,7 @@ void recuperarEstimativasRobo(int &results[]) {
       results[3] += configs[i].robotTendency.counterPositions;
       results[4] += configs[i].robotScalpe.counterPositions;
       results[5] += configs[i].robotMulti.counterPositions;
-      
+      results[6] += configs[i].robotPatterns.counterPositions;
    }
 }
 
@@ -278,6 +294,7 @@ void showComments(){
          " CrossTendency: ", results[1],
          " EngolfoTendency: ", results[2],
          " MultiRobot: ", results[5],
+         " Patterns: ", results[6],
          " TendencyRobot: ", results[3], "\n"
          );
 }
@@ -292,7 +309,7 @@ void OnChartEvent(const int id,
          closeAll();
       }
       if(sparam == "btnProtectAll"){
-         protectPositions(15);
+         protectPositions(100);
       }
     
    }
@@ -321,6 +338,7 @@ int OnInit() {
       iniciarRobos(configs[i].robotAverageTendency, NUMBER_MAX_ROBOT);
       iniciarRobos(configs[i].robotScalpe, NUMBER_MAX_ROBOT);
       iniciarRobos(configs[i].robotTendency, NUMBER_MAX_ROBOT);
+      iniciarRobos(configs[i].robotPatterns, NUMBER_MAX_ROBOT);
       iniciarRobos(configs[i].robotMulti, 1);
    }
 
@@ -348,6 +366,7 @@ void OnTick() {
          configs[i].robotCrossTendency.inLoss = false;
          configs[i].robotScalpe.inLoss = false;
          configs[i].robotMulti.inLoss = false;
+         configs[i].robotPatterns.inLoss = false;
          
       }
    }
@@ -430,12 +449,23 @@ void OnTick() {
          resetarRobo(configs[i].robotTendency, total);
          resetarRobo(configs[i].robotScalpe, total);
          resetarRobo(configs[i].robotMulti, total);
+         resetarRobo(configs[i].robotPatterns, total);
          
-         DesenharMaximoMinimoMaisTocados(configs[i], 15, 10);
+         //DesenharMaximoMinimoMaisTocados(configs[i], 15, 10);
       }
       
       if(getVolumeAtr(configs[i]) == 0) {
          return;
+      }
+      
+         
+      if (ENABLE_PATTERNS) {
+        configs[i].pattern = createPattern(configs[i]);
+      
+        if (i > 0) {
+           configs[i].patternAnterior = createPattern(configs[i-1]);
+        }
+        executarPatterns(configs[i]);
       }
       
       int remainingSeconds = calcularCandleTime(configs[i].tf);
@@ -460,10 +490,6 @@ void OnTick() {
      
          if (ENABLE_MULT_ROBOTS) {
             executarMultiRobos(configs[i]);
-         }
-         
-         if (ENABLE_SCALPE) {
-           executarEscalpe(configs[i]);
          }
          
       }
@@ -1115,8 +1141,11 @@ bool IsMaxRobots() {
    if (ENABLE_TENDENCIA) {
       count++;
    }
+   if (ENABLE_PATTERNS) {
+      count++;
+   }
    
-   return PositionsTotal() >= NUMBER_MAX_ROBOT * count;
+   return PositionsTotal() > NUMBER_MAX_ROBOT * count;
 }
 
 void DesenharMaximoMinimoMaisTocados(TimeframeConfig &config, int qtdCandles, int n){
@@ -2082,6 +2111,31 @@ TypeNegotiation AnalisarCandles(TimeframeConfig &config, int quantidadeCandles) 
    return NONE;
 }
 
+void executarPatterns(TimeframeConfig &config){
+   if (invalidarExecucao(config.robotPatterns)){
+      return;
+   }
+   
+   string comentario = "robotPatterns_" + EnumToString(config.tf);
+   TimeFrameCandle hammerPattern = isHammerReversion(config.pattern); 
+   TimeFrameCandle enPattern = isEngolfoTendency(config.pattern); 
+   TimeFrameCandle en2Pattern = isEngolfoTendency2(config.pattern); 
+   TimeFrameCandle hammerPatternAnterior = isHammerReversion(config.patternAnterior); 
+   TimeFrameCandle enPatternAnterior = isEngolfoTendency(config.patternAnterior); 
+   TimeFrameCandle en2PatternAnterior = isEngolfoTendency2(config.patternAnterior); 
+   
+   TimeFrameCandle pat = hammerPattern.updated ? hammerPattern : (enPattern.updated ? enPattern : en2Pattern);
+   TimeFrameCandle patAnt = hammerPatternAnterior.updated ? hammerPatternAnterior : (enPatternAnterior.updated ? enPatternAnterior : en2PatternAnterior);
+   if (pat.updated && patAnt.updated){
+      double average = GetAverageValue(config.movingAverage, 3);
+      if (pat.type == patAnt.type && pat.type == BUY ? average < config.preco : average > config.preco) {
+         TimeFrameCandle executor = pat.take > patAnt.take ? pat : patAnt;
+         ExecutarNegociacao(executor.type, VOLUME, executor.stop, executor.take, comentario, config.robotPatterns);
+      }
+   }
+   
+}
+
 void executarMultiRobos(TimeframeConfig &config){
    int countBuy = 0;
    int countSell = 0;
@@ -2189,4 +2243,112 @@ void createButton(string nameLine, int xx, int yy, int largura, int altura, int 
    ObjectSetInteger(0,nameLine,OBJPROP_COLOR, corTexto);
    ObjectSetInteger(0,nameLine,OBJPROP_BGCOLOR, corFundo);
    ObjectSetInteger(0,nameLine,OBJPROP_BORDER_COLOR, corBorda);
+}
+
+Pattern createPattern(TimeframeConfig &config) {
+   Pattern pattern;
+   pattern.actualCandle = config.candles[0];
+   pattern.lastCandle = config.candles[1];
+   pattern.secLastCandle = config.candles[2];
+   pattern.thirdLastCandle = config.candles[3];
+   pattern.lastCandleOrientation = IsBearish(config.candles[0]) ? SELL : (IsBullish(config.candles[0]) ? BUY : NONE);
+   pattern.actualCandleOrientation = IsBearish(config.candles[1]) ? SELL : (IsBullish(config.candles[1]) ? BUY : NONE);
+   pattern.secLastCandleOrientation = IsBearish(config.candles[2]) ? SELL : (IsBullish(config.candles[2]) ? BUY : NONE);
+   pattern.thirdLastCandleOrientation = IsBearish(config.candles[3]) ? SELL : (IsBullish(config.candles[3]) ? BUY : NONE);
+   pattern.anyNone = (pattern.lastCandleOrientation == NONE || pattern.secLastCandleOrientation == NONE || pattern.thirdLastCandleOrientation == NONE);
+   
+   return pattern;
+}
+
+double getTake(MqlRates &actualCandle, double stop) {
+   double tpPoints = CalcularPontos(actualCandle.close, stop) * (IsBearish(actualCandle) ? -1 : 1);
+   return CalcularPreco(actualCandle.close, tpPoints);
+}
+
+double getMaxStop(MqlRates &candle1, MqlRates &candle2) {
+   double stop = 0;
+   if(IsBullish(candle1)) {
+      stop = MathMax(candle1.low, candle2.low);
+   }else if(IsBearish(candle1)) {
+      stop = MathMax(candle1.high, candle2.high);
+   }
+   
+   return stop;
+}
+
+TimeFrameCandle isHammerReversion(Pattern &pattern) {
+   TimeFrameCandle tf;
+   tf.updated = false;
+   if (pattern.anyNone) {
+      return tf;   
+   }
+   
+   if (pattern.secLastCandleOrientation != pattern.lastCandleOrientation 
+      && pattern.thirdLastCandleOrientation != pattern.lastCandleOrientation 
+      && pattern.actualCandleOrientation == pattern.lastCandleOrientation) {
+      double body = getBodyOrWick(pattern.lastCandle, true);
+      double wick = getBodyOrWick(pattern.lastCandle, false);
+      double bodyLast = getBodyOrWick(pattern.secLastCandle, true);
+      double wickLast = getBodyOrWick(pattern.secLastCandle, false);
+      double bodyTLast = getBodyOrWick(pattern.thirdLastCandle, true);
+      double wickTLast = getBodyOrWick(pattern.thirdLastCandle, false);
+      
+      double take = pattern.secLastCandle.open;
+      double stop = getMaxStop(pattern.lastCandle, pattern.secLastCandle);
+      tf.type = pattern.lastCandleOrientation;
+      
+      tf.take = CalcularPontos(pattern.actualCandle.close, take);
+      tf.stop = CalcularPontos(pattern.actualCandle.close, stop);
+      tf.updated = wick > body;//&& bodyLast > wickLast  
+   }
+   
+   return tf;   
+}
+
+TimeFrameCandle isEngolfoTendency(Pattern &pattern) {
+   TimeFrameCandle tf;
+   tf.updated = false;
+   if (pattern.anyNone) {
+      return tf;   
+   }
+   
+   if (pattern.thirdLastCandleOrientation != pattern.secLastCandleOrientation 
+      && pattern.lastCandleOrientation == pattern.secLastCandleOrientation 
+      && pattern.actualCandleOrientation == pattern.secLastCandleOrientation) {
+      tf.stop = CalcularPontos(pattern.actualCandle.close, getMaxStop(pattern.lastCandle, pattern.secLastCandle));
+      tf.take = tf.stop;
+      tf.type = pattern.actualCandleOrientation;
+      
+      if (pattern.actualCandleOrientation == BUY && pattern.actualCandle.close > pattern.secLastCandle.open) {
+         tf.updated = tf.take >= tf.stop; 
+      } else if (pattern.actualCandleOrientation == SELL && pattern.actualCandle.close < pattern.secLastCandle.open) {
+         tf.updated = tf.take >= tf.stop; 
+      }
+   }
+   
+   return tf;   
+}
+
+TimeFrameCandle isEngolfoTendency2(Pattern &pattern) {
+   TimeFrameCandle tf;
+   tf.updated = false;
+   if (pattern.anyNone) {
+      return tf;   
+   }
+   
+   if (pattern.thirdLastCandleOrientation == pattern.secLastCandleOrientation 
+      && pattern.lastCandleOrientation != pattern.secLastCandleOrientation 
+      && pattern.actualCandleOrientation == pattern.secLastCandleOrientation) {
+      tf.stop = CalcularPontos(pattern.actualCandle.close, getMaxStop(pattern.lastCandle, pattern.secLastCandle));
+      tf.take =  tf.stop;
+      tf.type = pattern.actualCandleOrientation;
+      
+      if (pattern.actualCandleOrientation == BUY && pattern.actualCandle.close > pattern.lastCandle.open) {
+         tf.updated = tf.take >= tf.stop; 
+      } else if (pattern.actualCandleOrientation == SELL && pattern.actualCandle.close < pattern.lastCandle.open) {
+         tf.updated = tf.take >= tf.stop; 
+      }
+   }
+   
+   return tf;   
 }

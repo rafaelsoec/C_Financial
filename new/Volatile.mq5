@@ -213,7 +213,7 @@ input ATR_TYPE ATR_MINIMUM = ATR_0_5;
 input MOVE_STOP_TYPE MOVE_STOP = MOVE_STOP_30;
 input double PROPORTION_TAKE_STOP = 2;
 input double VOLUME_CRUZAMENTO = 0.03;
-input double VOLUME_ENGOLFO = 0.04;
+ double VOLUME_ENGOLFO = 0.04;
 input double VOLUME_MEDIAS = 0.03;
 input double VOLUME_PATTERNS = 0.1;
 input double VOLUME_TENDENCIA = 0.05;
@@ -472,6 +472,11 @@ void OnTick() {
          printf("Atr Nao Recuperado - " + EnumToString(configs[i].tf));
          return;
       }
+      
+      if (!GetCci(configs[i])) {
+         printf("Cci Nao Recuperado - " + EnumToString(configs[i].tf));
+         return;
+      }
         
       configs[i].tendencia = AnalisarCandles(configs[i], QTD_CANDLES);
       if(IsNewBar(configs[i])) {
@@ -492,13 +497,12 @@ void OnTick() {
          return;
       }
       int remainingSeconds = calcularCandleTime(configs[i].tf);
-      if (remainingSeconds < configs[i].tfSeconds * 0.8) {
-         TimeframeConfig anterior = configs[i].getAnterior();
-         configs[i].vendaPermitida = (!VerificarTimeframeAnterior(SELL, anterior.tf) || !verificarBordas(configs[i], SELL));
-         configs[i].compraPermitida = (!VerificarTimeframeAnterior(BUY, anterior.tf) || !verificarBordas(configs[i], BUY));
-         if (VOLUME_ENGOLFO > 0) {
-            executarEngolfo(configs[i]);
-         }
+      if (remainingSeconds > configs[i].tfSeconds * 0.2 ) {
+         //configs[i].vendaPermitida = (!VerificarTimeframeAnterior(SELL, anterior.tf) || !verificarBordas(configs[i], SELL));
+         //configs[i].compraPermitida = (!VerificarTimeframeAnterior(BUY, anterior.tf) || !verificarBordas(configs[i], BUY));
+        // if (VOLUME_ENGOLFO > 0) {
+        //    executarEngolfo(configs[i]);
+        // }
          
          if (VOLUME_MEDIAS > 0) {
             executarMedias(configs[i]);
@@ -544,6 +548,7 @@ void executarEngolfo(TimeframeConfig &config) {
          double take = stop * PROPORTION_TAKE_STOP;
    
          if (TendenciaTerminou(config, BUY)) {
+            ExecutarNegociacao(BUY, VOLUME_TENDENCIA, stop, take, comentario, config.robotTendency, true);
             return;
          }
          ExecutarNegociacao(BUY, VOLUME_ENGOLFO, stop, take, comentario, config.robotEngolfoTendency);
@@ -553,6 +558,7 @@ void executarEngolfo(TimeframeConfig &config) {
          double take = stop * PROPORTION_TAKE_STOP;
    
          if (TendenciaTerminou(config, SELL)) {
+            ExecutarNegociacao(SELL, VOLUME_TENDENCIA, stop, take, comentario, config.robotTendency, true);
             return;
          }
          ExecutarNegociacao(SELL, VOLUME_ENGOLFO, stop, take, comentario, config.robotEngolfoTendency);
@@ -580,6 +586,7 @@ void executarCruzamento(TimeframeConfig &config) {
          double take = stop * PROPORTION_TAKE_STOP;
    
          if (TendenciaTerminou(config, SELL)) {
+            ExecutarNegociacao(SELL, VOLUME_TENDENCIA, stop, take, comentario, config.robotTendency, true);
             return;
          }
          ExecutarNegociacao(SELL, VOLUME_CRUZAMENTO, stop, take, comentario, config.robotCrossTendency);
@@ -593,6 +600,7 @@ void executarCruzamento(TimeframeConfig &config) {
          double take = stop * PROPORTION_TAKE_STOP;
    
          if (TendenciaTerminou(config, BUY)) {
+            ExecutarNegociacao(BUY, VOLUME_TENDENCIA, stop, take, comentario, config.robotTendency, true);
             return;
          }
          ExecutarNegociacao(BUY, VOLUME_CRUZAMENTO, stop, take, comentario, config.robotCrossTendency);
@@ -617,6 +625,7 @@ void executarMedias(TimeframeConfig &config) {
          double take = stop * PROPORTION_TAKE_STOP;
    
          if (TendenciaTerminou(config, SELL)) {
+            ExecutarNegociacao(SELL, VOLUME_TENDENCIA, stop, take, comentario, config.robotTendency, true);
             return;
          }
          ExecutarNegociacao(SELL, VOLUME_MEDIAS, stop, take, comentario, config.robotAverageTendency);
@@ -628,6 +637,7 @@ void executarMedias(TimeframeConfig &config) {
          double take = stop * PROPORTION_TAKE_STOP;
    
          if (TendenciaTerminou(config, BUY)) {
+            ExecutarNegociacao(BUY, VOLUME_TENDENCIA, stop, take, comentario, config.robotTendency, true);
             return;
          }
          ExecutarNegociacao(BUY, VOLUME_MEDIAS, stop, take, comentario, config.robotAverageTendency);
@@ -656,6 +666,7 @@ void executarTendencia(TimeframeConfig &config) {
          double take = stop * PROPORTION_TAKE_STOP;
    
          if (TendenciaTerminou(config, SELL)) {
+            ExecutarNegociacao(SELL, VOLUME_TENDENCIA, stop, take, comentario, config.robotTendency, true);
             return;
          }
          ExecutarNegociacao(SELL, VOLUME_TENDENCIA, stop, take, comentario, config.robotTendency);
@@ -669,6 +680,7 @@ void executarTendencia(TimeframeConfig &config) {
          double take = stop * PROPORTION_TAKE_STOP;
    
          if (TendenciaTerminou(config, BUY)) {
+            ExecutarNegociacao(BUY, VOLUME_TENDENCIA, stop, take, comentario, config.robotTendency, true);
             return;
          }
          ExecutarNegociacao(BUY, VOLUME_TENDENCIA, stop, take, comentario, config.robotTendency);
@@ -676,7 +688,7 @@ void executarTendencia(TimeframeConfig &config) {
    }
 }
 
-bool ExecutarNegociacao(TypeNegotiation tipoNegociacao, double volume,  double pontosStop, double pontosTake, string comentario, TimeFrameRobot &robot) {
+bool ExecutarNegociacao(TypeNegotiation tipoNegociacao, double volume,  double pontosStop, double pontosTake, string comentario, TimeFrameRobot &robot, bool realizarLimit = false, double candleHigh = 0, double candleLow = 0) {
    if (BLOQUEAR_POSICOES) {
       return false;
    }
@@ -708,9 +720,16 @@ bool ExecutarNegociacao(TypeNegotiation tipoNegociacao, double volume,  double p
       }
 
       AjustarStopTake(BUY, stop, take);
-      if(!trade.Buy(volume,  _Symbol,  preco, stop,  take, comentario)) {
-         Print("Erro ao executar compra: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription(), " - ", comentario);
-         return false;
+      if (realizarLimit) {
+         if(!AbrirOrdemLimit(tipoNegociacao, volume, pontosStop, pontosTake, comentario, candleHigh - candleLow, 20)) {
+            Print("Erro ao executar compra: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription(), " - ", comentario);
+            return false;
+         }
+      } else {
+         if(!trade.Buy(volume,  _Symbol,  preco, stop,  take, comentario)) {
+            Print("Erro ao executar compra: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription(), " - ", comentario);
+            return false;
+         }
       }
       ordemExecutada = true;
    } else if(tipoNegociacao == SELL) {
@@ -727,9 +746,16 @@ bool ExecutarNegociacao(TypeNegotiation tipoNegociacao, double volume,  double p
       }
       
       AjustarStopTake(SELL, stop, take);
-      if(!trade.Sell(volume,  _Symbol,  preco, stop, take, comentario)) {
-         Print("Erro ao executar venda: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription(), " - ", comentario);
-         return false;
+      if (realizarLimit) {
+         if(!AbrirOrdemLimit(tipoNegociacao, volume, pontosStop, pontosTake, comentario, candleHigh - candleLow, 20)) {
+            Print("Erro ao executar compra: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription(), " - ", comentario);
+            return false;
+         }
+      } else {
+         if(!trade.Sell(volume,  _Symbol,  preco, stop,  take, comentario)) {
+            Print("Erro ao executar venda: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription(), " - ", comentario);
+            return false;
+         }
       }
       ordemExecutada = true;
    }
@@ -759,6 +785,121 @@ bool ExecutarNegociacao(TypeNegotiation tipoNegociacao, double volume,  double p
    }
 
    return ordemExecutada;
+}
+
+bool AbrirOrdemLimit(TypeNegotiation tipoNegociacao, double volume, double pontosStop, double pontosTake, string comentario, double tamanhoCandle = 0, double percentual = 30.0) {
+   double precoAtual = 0;
+   double preco = 0;
+   double stop = 0;
+   double take = 0;
+
+   if(tamanhoCandle <= 0) {
+      return false;
+   }
+
+   // Distância correspondente a 20% do candle
+   double distanciaLimit = tamanhoCandle * (percentual / 100.0);
+
+   trade.SetExpertMagicNumber(MAGIC_NUMBER);
+
+   // =========================
+   // BUY LIMIT
+   // =========================
+   if(tipoNegociacao == BUY) {
+
+      precoAtual = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+
+      // 20% do candle abaixo do preço atual
+      preco = precoAtual - distanciaLimit;
+
+      // Stop e Take calculados a partir da entrada LIMIT
+      stop = preco - ((pontosStop + distanciaLimit) * _Point);
+      take = preco + ((pontosTake + distanciaLimit) * _Point);
+
+      preco = NormalizeDouble(preco, _Digits);
+      stop  = NormalizeDouble(stop, _Digits);
+      take  = NormalizeDouble(take, _Digits);
+
+      // BUY LIMIT precisa estar abaixo do Ask
+      if(preco >= precoAtual) {
+         Print("BUY LIMIT inválido.");
+         return false;
+      }
+
+      if(stop >= preco || take <= preco) {
+         Print("Stop/Take inválidos para BUY LIMIT.");
+         return false;
+      }
+
+      AjustarStopTake(BUY, stop, take);
+      if(!trade.BuyLimit(volume, preco, _Symbol,  stop, take, ORDER_TIME_GTC, 0,  comentario )) {
+         Print("Erro ao colocar BUY LIMIT: ", trade.ResultRetcode(),  " - ",  trade.ResultRetcodeDescription(), " - ", comentario );
+
+         return false;
+      }
+
+      Print(
+         "BUY LIMIT criada | Atual: ", precoAtual,
+         " | Candle: ", tamanhoCandle,
+         " | Distância: ", distanciaLimit,
+         " | Entrada: ", preco,
+         " | Stop: ", stop,
+         " | Take: ", take
+      );
+
+      return true;
+   }
+
+   // =========================
+   // SELL LIMIT
+   // =========================
+   if(tipoNegociacao == SELL) {
+
+      precoAtual = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+      // 20% do candle acima do preço atual
+      preco = precoAtual + distanciaLimit;
+
+      // Stop e Take calculados a partir da entrada LIMIT
+      stop = preco + ((pontosStop - distanciaLimit) * _Point);
+      take = preco - ((pontosTake - distanciaLimit)* _Point);
+
+      preco = NormalizeDouble(preco, _Digits);
+      stop  = NormalizeDouble(stop, _Digits);
+      take  = NormalizeDouble(take, _Digits);
+
+      // SELL LIMIT precisa estar acima do Bid
+      if(preco <= precoAtual) {
+         Print("SELL LIMIT inválido.");
+         return false;
+      }
+
+      if(stop <= preco || take >= preco) {
+         Print("Stop/Take inválidos para SELL LIMIT.");
+         return false;
+      }
+
+      AjustarStopTake(SELL, stop, take);
+
+      if(!trade.SellLimit( volume, preco, _Symbol, stop, take, ORDER_TIME_GTC,  0, comentario  )) {
+         Print("Erro ao colocar SELL LIMIT: ", trade.ResultRetcode(),  " - ",  trade.ResultRetcodeDescription(), " - ", comentario );
+
+         return false;
+      }
+
+      Print(
+         "SELL LIMIT criada | Atual: ", precoAtual,
+         " | Candle: ", tamanhoCandle,
+         " | Distância: ", distanciaLimit,
+         " | Entrada: ", preco,
+         " | Stop: ", stop,
+         " | Take: ", take
+      );
+
+      return true;
+   }
+
+   return false;
 }
 
 bool invalidarExecucao(TimeFrameRobot &robot) {
@@ -1070,6 +1211,19 @@ bool GetAtr(TimeframeConfig &config) {
    return true;
 }
 
+bool GetCci(TimeframeConfig &config) { 
+   // Handle ADX
+   int handleCCI = iCCI(_Symbol, config.tf, 14, PRICE_TYPICAL);
+   if(handleCCI == INVALID_HANDLE)
+      return false;
+      
+   if(CopyBuffer(handleCCI, 0, 0, QTD_ITEMS, config.cci) <= 0)
+      return false;
+      
+   ArrayReverse(config.cci);
+   return true;
+}
+
 bool GetVolumes(TimeframeConfig &config) {   
    int handleVolume = iVolumes(_Symbol, config.tf, VOLUME_TICK);
    if(handleVolume == INVALID_HANDLE) {
@@ -1200,7 +1354,7 @@ bool IsMaxRobots() {
       count++;
    }
    if (VOLUME_ENGOLFO > 0) {
-      count++;
+    //  count++;
    }
    if (VOLUME_MEDIAS > 0) {
       count++;
@@ -1914,37 +2068,35 @@ bool TendenciaTerminou(TimeframeConfig &config, TypeNegotiation tipo) {
    if (DISABLE_END_TENDENCY) {
       return false;
    }
-   // ---------------------------------------------------------
-   // 1. PERDA DA ESTRUTURA
-   // ---------------------------------------------------------
-
+   
    bool perdeuEstrutura = false;
-
-   if(tipo == BUY) {
-      // Último fundo ficou abaixo do fundo anterior
-      if(config.candles[1].low < config.candles[3].low)
-         perdeuEstrutura = true;
-   }
-   else {
-      // Último topo ficou acima do topo anterior
-      if(config.candles[1].high > config.candles[3].high)
-         perdeuEstrutura = true;
-   }
-
-   // ---------------------------------------------------------
-   // 2. PREÇO CRUZOU A MÉDIA RÁPIDA
-   // ---------------------------------------------------------
-
+   bool cciExtrapolado = false;
    bool cruzouMedia = false;
    if(tipo == BUY) {
       if(config.candles[2].close > config.movingAverage[2] &&
          config.candles[1].close < config.movingAverage[1]) {
          cruzouMedia = true;
       }
+      
+      if (config.cci[0] > 200) {
+         cciExtrapolado = true;
+      }
+   
+      // Último fundo ficou abaixo do fundo anterior
+      if(config.candles[1].low < config.candles[3].low){
+         perdeuEstrutura = true;
+      }
    } else {
       if(config.candles[2].close < config.movingAverage[2] &&
          config.candles[1].close > config.movingAverage[1])  {
          cruzouMedia = true;
+      }
+      if (config.cci[0] < -200) {
+         cciExtrapolado = true;
+      }
+      // Último topo ficou acima do topo anterior
+      if(config.candles[1].high > config.candles[3].high){
+         perdeuEstrutura = true;
       }
    }
 
@@ -2003,11 +2155,13 @@ bool TendenciaTerminou(TimeframeConfig &config, TypeNegotiation tipo) {
    if(adxPerdendoForca)
       sinais++;
 
+   if(cciExtrapolado)
+      sinais++;
    // ---------------------------------------------------------
    // 2 OU MAIS SINAIS = TENDÊNCIA POSSIVELMENTE TERMINOU
    // ---------------------------------------------------------
 
-   return sinais >= 2;
+   return sinais >= 3;
 }
 
 void AjustarStopTake(TypeNegotiation tipo, double &stop, double &take){
@@ -2226,15 +2380,14 @@ void executarPatterns(TimeframeConfig &config){
    TimeFrameCandle pat = VerificarSePatternEncontrado(config.pattern);
    TimeFrameCandle patAnt = VerificarSePatternEncontrado(config.getAnterior().pattern);
    if (pat.updated && patAnt.updated){
-      double average = GetAverageValue(config.movingAverage, 3);
       TypeNegotiation type = DetectarPressaoVolume(config);
       if (pat.type == patAnt.type && type == pat.type ) {
          TimeFrameCandle executor = pat.take > patAnt.take ? pat : patAnt;
-   
          if (TendenciaTerminou(config, executor.type)) {
+            ExecutarNegociacao(executor.type, VOLUME_TENDENCIA, executor.stop, executor.take, comentario, config.robotTendency, true);
             return;
          }
-         ExecutarNegociacao(executor.type, VOLUME_PATTERNS, executor.stop, executor.take, comentario, config.robotPatterns);
+         ExecutarNegociacao(executor.type, VOLUME_PATTERNS, executor.stop, executor.take, comentario, config.robotPatterns, config.candles[0].high, config.candles[0].low);
       }
       
    }
@@ -2270,21 +2423,22 @@ void executarMultiRobos(TimeframeConfig &config){
    TimeFrameCandle bordasBuy = countPositionsInProfit(BUY);
    if (countSell >= qtdTfs) {
       TypeNegotiation type = DetectarPressaoVolume(config);
-      if (TendenciaTerminou(config, type)) {
-         return;
-      }
-      
       if (bordasSell.counter > 0 && bordasSell.counter > bordasBuy.counter && type == SELL) {
+         if (TendenciaTerminou(config, type)) {
+            ExecutarNegociacao(type, VOLUME_TENDENCIA, bordasSell.stop, bordasSell.take, comentario, config.robotTendency, true);
+            return;
+         }
          ExecutarNegociacao(SELL, VOLUME_MULT_ROBOTS, bordasSell.stop, bordasSell.take, comentario, config.robotMulti);
          habilitaMultiRobots = agora;
       }
    } else if (countBuy >= qtdTfs) {
       TypeNegotiation type = DetectarPressaoVolume(config);
-      if (TendenciaTerminou(config, type)) {
-         return;
-      }
       
       if (bordasBuy.counter > 0 && bordasSell.counter < bordasBuy.counter && type == BUY) {
+         if (TendenciaTerminou(config, type)) {
+            ExecutarNegociacao(type, VOLUME_TENDENCIA, bordasSell.stop, bordasSell.take, comentario, config.robotTendency, true);
+            return;
+         }
          ExecutarNegociacao(BUY, VOLUME_MULT_ROBOTS, bordasBuy.stop, bordasBuy.take, comentario, config.robotMulti);
          habilitaMultiRobots = agora;
       }
@@ -2408,6 +2562,8 @@ TimeFrameCandle VerificarSePatternEncontrado(Pattern &pattern) {
 
 TimeFrameCandle ExecutePattern(int patternType, Pattern &pattern){
    switch(patternType) {
+     /*
+       */
       case 0:
          return isHammerReversion(pattern);
 
@@ -2417,6 +2573,9 @@ TimeFrameCandle ExecutePattern(int patternType, Pattern &pattern){
       case 2:
          return isEngolfoTendency2(pattern);
 
+      case 3:
+         return isPavioPattern(pattern);
+         
       default:
          return isPavioPattern(pattern);
    }
@@ -2517,10 +2676,50 @@ TimeFrameCandle isPavioPattern(Pattern &pattern) {
    if (pattern.secLastCandleOrientation != pattern.lastCandleOrientation 
       && pattern.lastCandleOrientation == pattern.actualCandleOrientation 
       && secBody > tBody && secBody > fBody && secBody > lBody  && lBody > secBody * 0.4) {
-      tf.stop = CalcularPontos(pattern.actualCandle.close, getMaxStop(pattern.lastCandle, pattern.secLastCandle));
-      tf.take =  CalcularPontos(pattern.actualCandle.close, pattern.secLastCandle.close);
+      double spread = pattern.actualCandle.spread;
+      if (tf.type == BUY) {
+         tf.stop = CalcularPontos(pattern.actualCandle.close, pattern.secLastCandle.low);
+         tf.take = CalcularPontos(pattern.actualCandle.close, pattern.secLastCandle.high);
+      }
+      if (tf.type == SELL) {
+         tf.stop = CalcularPontos(pattern.actualCandle.close, pattern.secLastCandle.high);
+         tf.take = CalcularPontos(pattern.actualCandle.close, pattern.secLastCandle.low);
+      }
       tf.type = pattern.actualCandleOrientation;
-      tf.updated = tf.take >= tf.stop; 
+      tf.updated = tf.take - spread >= tf.stop; 
+   }
+   
+   return tf;   
+}
+
+TimeFrameCandle isPavioPattern2(Pattern &pattern) {
+   TimeFrameCandle tf;
+   tf.updated = false;
+   if (pattern.anyNone) {
+      return tf;   
+   }
+   
+   double secBody = getBodyOrWick(pattern.secLastCandle, true);
+   double secWick = getBodyOrWick(pattern.secLastCandle, false);
+   double lBody = getBodyOrWick(pattern.lastCandle, true);
+   double lWick = getBodyOrWick(pattern.lastCandle, false);
+   double aBody = getBodyOrWick(pattern.actualCandle, true);
+   double aWick = getBodyOrWick(pattern.actualCandle, false);
+   if (pattern.secLastCandleOrientation == pattern.lastCandleOrientation 
+      && pattern.lastCandleOrientation == pattern.actualCandleOrientation 
+      && secBody > secWick && lBody > lWick && aBody < aWick) {
+      tf.type = pattern.actualCandleOrientation;
+      double spread = pattern.actualCandle.spread;
+      
+      if (tf.type == BUY) {
+         tf.stop = CalcularPontos(pattern.actualCandle.close, pattern.actualCandle.low);
+         tf.take = CalcularPontos(pattern.actualCandle.close, pattern.actualCandle.high);
+      }
+      if (tf.type == SELL) {
+         tf.stop = CalcularPontos(pattern.actualCandle.close, pattern.actualCandle.high);
+         tf.take = CalcularPontos(pattern.actualCandle.close, pattern.actualCandle.low);
+      }
+      tf.updated = tf.take - spread >= tf.stop && tf.take > spread * 2 && tf.stop > spread * 2; 
    }
    
    return tf;   

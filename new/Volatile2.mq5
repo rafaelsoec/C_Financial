@@ -212,14 +212,14 @@ struct MaximosMinimos
 input int QTD_CANDLES = 5;
 input double LOSS_PER_DAY = 500;
 input ATR_TYPE ATR_MINIMUM = ATR_0_5;
-input MOVE_STOP_TYPE MOVE_STOP = MOVE_PROTECTION_POINTS;
+input MOVE_STOP_TYPE MOVE_STOP = MOVE_STOP_30;
 input double PROPORTION_TAKE_STOP = 2;
 input double VOLUME_CRUZAMENTO = 0.03;
- double VOLUME_ENGOLFO = 0;
+ double VOLUME_ENGOLFO = 0.04;
 input double VOLUME_MEDIAS = 0.03;
 input double VOLUME_PATTERNS = 0.1;
-input double VOLUME_TENDENCIA = 0.03;
-input double VOLUME_MULT_ROBOTS = 0.02;
+input double VOLUME_TENDENCIA = 0.05;
+input double VOLUME_MULT_ROBOTS = 0.01;
 input bool BLOQUEAR_POSICOES = false;
 input bool IGNORAR_NOTICIAS = false;
 input bool DISABLE_END_TENDENCY = false;
@@ -885,6 +885,7 @@ bool AbrirOrdemLimit(TypeNegotiation tipoNegociacao, double volume, double ponto
 
    // Distância correspondente a 20% do candle
    double distanciaLimit = tamanhoCandle * (percentual / 100.0);
+   datetime expiracao = TimeTradeServer() + (30 * 60);
 
    trade.SetExpertMagicNumber(MAGIC_NUMBER);
 
@@ -918,7 +919,7 @@ bool AbrirOrdemLimit(TypeNegotiation tipoNegociacao, double volume, double ponto
       }
 
       AjustarStopTake(BUY, stop, take);
-      if(!trade.BuyLimit(volume, preco, _Symbol,  stop, take, ORDER_TIME_GTC, 0,  comentario )) {
+      if(!trade.BuyLimit(volume, preco, _Symbol,  stop, take, ORDER_TIME_SPECIFIED, expiracao,  comentario )) {
          Print("Erro ao colocar BUY LIMIT: ", trade.ResultRetcode(),  " - ",  trade.ResultRetcodeDescription(), " - ", comentario );
 
          return false;
@@ -967,7 +968,7 @@ bool AbrirOrdemLimit(TypeNegotiation tipoNegociacao, double volume, double ponto
 
       AjustarStopTake(SELL, stop, take);
 
-      if(!trade.SellLimit( volume, preco, _Symbol, stop, take, ORDER_TIME_GTC,  0, comentario  )) {
+      if(!trade.SellLimit( volume, preco, _Symbol, stop, take, ORDER_TIME_SPECIFIED,  expiracao, comentario  )) {
          Print("Erro ao colocar SELL LIMIT: ", trade.ResultRetcode(),  " - ",  trade.ResultRetcodeDescription(), " - ", comentario );
 
          return false;

@@ -1,0 +1,3614 @@
+//+------------------------------------------------------------------+
+//|                                          FamilyMJ_MultiTF.mq5    |
+//+------------------------------------------------------------------+
+#property strict
+
+#include <Trade/Trade.mqh>
+
+enum VOLATILITY {
+   VERY_LOW,
+   LOW,
+   MEDIUM,
+   HIGH,
+   VERY_HIGH
+};
+
+enum LOSS_TREND {
+   LOSS_NONE,
+   LOSS_BUY,
+   LOSS_SELL,
+   LOSS_BALANCED
+};
+
+enum ENUM_PATTERN {
+   P_1,
+   P_2,
+   P_3,
+   P_4,
+   P_5
+};
+
+enum MOVE_STOP_TYPE{
+   MOVE_STOP_10    = 10,
+   MOVE_STOP_20    = 20,
+   MOVE_STOP_30    = 30,
+   MOVE_STOP_40    = 40,
+   MOVE_STOP_50    = 50,
+   MOVE_STOP_60    = 60,
+   MOVE_STOP_70    = 70,
+   MOVE_STOP_NONE  = 0,
+   MOVE_PROTECTION_POINTS  = -1
+ };
+ 
+enum MOVING_AVERAGE_TYPE {
+   MV_9   = 9,
+   MV_21   = 21,
+   MV_50   = 50,
+   MV_80   = 80,
+   MV_200   = 200,
+   MV_400   = 400
+};
+ 
+enum ATR_TYPE {
+   ATR_0   = 0,
+   ATR_0_5 = 5,
+   ATR_1   = 10,
+   ATR_1_5 = 15,
+   ATR_2   = 20,
+   ATR_2_5 = 25,
+   ATR_3   = 30,
+   ATR_3_5 = 35,
+   ATR_4   = 40,
+   ATR_4_5 = 45,
+   ATR_5   = 50
+};
+ 
+enum LEVEL{
+   L1,
+   L2,
+   L3
+ };
+ 
+struct FibonacciLevels {
+   double fundo;
+   double topo;
+   double fib382;
+   double fib500;
+   double fib618;
+   double fib786;
+};
+
+struct BordersOperation {
+   double max;
+   double min;
+   double central;
+   bool instantiated;
+};
+
+struct RegiaoExtremo{
+   double precoMin;
+   double precoMax;
+   double precoMedio;
+
+   int quantidade;
+   int primeiroShift;
+   int ultimoShift;
+
+   datetime primeiroTempo;
+   datetime ultimoTempo;
+};
+
+struct LossTrade {
+   datetime closeTime;
+   double profit;
+   ENUM_DEAL_TYPE type;
+   double price;
+};
+ 
+enum TypeNegotiation{
+   BUY,
+   SELL,
+   NONE
+};
+
+enum VolumeLevel
+{
+   VOLUME_LOW,
+   VOLUME_NORMAL,
+   VOLUME_HIGH
+};
+
+struct Pattern {
+   MqlRates FourthLastCandle;
+   MqlRates secLastCandle;
+   MqlRates thirdLastCandle;
+   MqlRates lastCandle;
+   MqlRates actualCandle;
+   TypeNegotiation thirdLastCandleOrientation;
+   TypeNegotiation secLastCandleOrientation;
+   TypeNegotiation lastCandleOrientation;
+   TypeNegotiation actualCandleOrientation;
+   bool anyNone;
+};
+
+
+struct TimeFrameCandle {
+   bool win;
+   bool updated;
+   TypeNegotiation type;
+   double volume;
+   double open;
+   double stop;
+   double take;
+   datetime time;
+   ulong ticket;
+   int counter;
+};
+
+struct TimeFrameRobot {
+   int maxRobots;
+   int counter;
+   int counterPositions;
+   bool inLoss;
+   bool waitNewCandle;
+   TimeFrameCandle historic[10];
+   bool isNull;
+};
+
+CTrade trade;
+struct TimeframeConfig {
+   ENUM_TIMEFRAMES tf;
+   Pattern pattern;
+   int anterior;
+   int tfSeconds;
+   int cciHandle;
+   double multiplier;
+   datetime lastBarTime;
+   TimeFrameRobot robotTendency;
+   TimeFrameRobot robotAverageTendency;
+   TimeFrameRobot robotEngolfoTendency;
+   TimeFrameRobot robotCrossTendency;
+   TimeFrameRobot robotScalpe;
+   TimeFrameRobot robotMulti;
+   TimeFrameRobot robotPatterns;
+   TimeFrameRobot robotBotTop;
+   ulong magicNumber;
+   double atr[15];
+   double volumes[15];
+   double movingAverage[15];
+   double movingAverage21[15];
+   double movingAverage50[15];
+   double movingAverage200[15];
+   double movingAverage400[15];
+   double adx[15];
+   double adxMinus[15];
+   double adxPlus[15];
+   double cci[15];
+   double preco;
+   BordersOperation bordas;
+   TypeNegotiation tendencia;
+   TypeNegotiation adxTendency;
+   TypeNegotiation adxPlusTendency;
+   TypeNegotiation adxMinusTendency;
+   bool compraPermitida;
+   bool vendaPermitida;
+   bool invalid;
+   string label;
+   MqlRates candles[];
+   
+   
+   TimeframeConfig getAnterior() {
+      if (anterior >= 0) {
+         return configs[anterior];
+      }
+      
+      TimeframeConfig tf2;
+      tf2.label = "Invalid";
+      tf2.tf = PERIOD_M5;
+      tf2.anterior = -1;
+      tf2.invalid = true;
+      return tf2;
+   }
+};
+
+
+struct MaximosMinimos
+{
+   double high;
+   double low;
+   double minOpen;
+   double maxOpen;
+   double minClose;
+   double maxClose;
+};
+
+struct DadosOrdem
+{
+   double volume;
+   TypeNegotiation tipo;
+   double stop;
+   double take;
+};
+
+
+input int QTD_CANDLES = 5;
+input double LOSS_PER_DAY = 500;
+input ATR_TYPE ATR_MINIMUM = ATR_0_5;
+input MOVE_STOP_TYPE MOVE_STOP = MOVE_STOP_30;
+input double PROPORTION_TAKE_STOP = 1;
+ double VOLUME_CRUZAMENTO = 0;
+ double VOLUME_ENGOLFO = 0;
+ double VOLUME_MEDIAS = 0;
+ double VOLUME_PATTERNS = 0;
+ double VOLUME_TENDENCIA = 0;
+input double VOLUME_MULT_ROBOTS = 0.01;
+input double VOLUME_BORDERS = 0.01;
+input bool BLOQUEAR_POSICOES = false;
+ bool ENABLE_TWOWAY_POSITION = false;
+input bool IGNORAR_NOTICIAS = false;
+ bool DISABLE_END_TENDENCY = false;
+ bool VOLUME_SCALPE = false;
+input int NUMBER_MAX_ROBOT = 2;
+input ulong MAGIC_NUMBER = 97889902933;
+input bool IS_SWING_TRADE = false;
+input bool IS_TEST = false;
+bool IGNORE_MAGIC_NUMBER = true;
+ bool VOLUME_PRICE_VALIDATION = false;
+
+TimeframeConfig configs[];
+ENUM_TIMEFRAMES tfs[] = {PERIOD_M10, PERIOD_M15, PERIOD_M20, PERIOD_M30, PERIOD_H1};
+double supports[];
+int supportsCounter = 0;
+//, PERIOD_M10, PERIOD_M15, PERIOD_M20, PERIOD_M30, PERIOD_H1
+//
+
+int QTD_ITEMS = 15;
+double POINTS_TARGET = 0;
+double BALANCE = 0;
+bool MAX_LOSS_ATINGIDO = false;
+bool VOLUME_TIMEFRAME_MULTIPLIER = false;
+bool VOLUME_ROMPIMENTO_BORDA = false;
+datetime NOVA_NOTICIA_AGUARDANDO =  D'2000.01.01 00:00:00';
+datetime habilitaMultiRobots = D'2000.01.01 00:00:00';
+//
+//+------------------------------------------------------------------+
+ulong GetMagicNumberByTimeframe(ENUM_TIMEFRAMES tf) {
+   return MAGIC_NUMBER;
+}
+
+double TimeframeToMultiplier(ENUM_TIMEFRAMES tf){
+   switch(tf) {
+      case PERIOD_M5: return 1;
+      case PERIOD_M10: return 1;
+      case PERIOD_M15: return 1.2;
+      case PERIOD_M20: return 1.5;
+      case PERIOD_M30: return 2;
+      case PERIOD_H1:  return 2.5;
+      case PERIOD_H2:  return 3;
+      case PERIOD_H3:  return 3.5;
+      case PERIOD_H4:  return 4;
+      case PERIOD_H6:  return 4.5;
+      case PERIOD_H8:  return 5;
+      case PERIOD_D1:  return 5.5;
+      case PERIOD_W1:  return 6;
+      case PERIOD_MN1:  return 6.5;
+      default:         return 1;
+   }
+}
+
+//+------------------------------------------------------------------+
+string TimeframeToLabel(ENUM_TIMEFRAMES tf){
+   return EnumToString(tf);
+}
+
+TimeframeConfig getTfByComment(string tfComment) {
+   TimeframeConfig config;
+   for(int i = 0; i < ArraySize(configs); i++) {
+      string tfLabel = TimeframeToLabel(configs[i].tf);
+      if(StringFind(tfComment, tfLabel) >= 0) {
+         return  configs[i];
+      }
+   }
+   
+   config.invalid = false;
+   return config;
+}
+//+------------------------------------------------------------------+
+bool IsManagedMagic(ulong magic) {
+   for(int i = 0; i < ArraySize(configs); i++) {
+      if(configs[i].magicNumber == magic)
+         return true;
+   }
+   return false;
+}
+
+void recuperarEstimativasRobo(int &results[]) {
+   ArrayInitialize(results, 0);
+   for(int i = 0; i < ArraySize(configs); i++) {
+      results[0] += configs[i].robotAverageTendency.counterPositions;
+      results[1] += configs[i].robotCrossTendency.counterPositions;
+      results[2] += configs[i].robotEngolfoTendency.counterPositions;
+      results[3] += configs[i].robotTendency.counterPositions;
+      results[4] += configs[i].robotScalpe.counterPositions;
+      results[5] += configs[i].robotMulti.counterPositions;
+      results[6] += configs[i].robotPatterns.counterPositions;
+      results[7] += configs[i].robotBotTop.counterPositions;
+      
+   }
+}
+
+void showComments(){
+   double profit = AccountInfoDouble(ACCOUNT_PROFIT);
+   int results[15];
+   
+   recuperarEstimativasRobo(results);
+   Comment(
+         " Total de posições ativas: ", (PositionsTotal()), 
+         " Saldo: ", DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE) + profit, 2),
+         " Lucro Atual: ", DoubleToString(profit, 2),
+         " Tempo de Candle: ", transformarCandleTime(), "\n",
+         " AverageTendency: ", results[0],
+         " CrossTendency: ", results[1],
+         " EngolfoTendency: ", results[2],
+         " MultiRobot: ", results[5],
+         " Patterns: ", results[6],
+         " TendencyRobot: ", results[3], "\n"
+         );
+}
+
+
+void OnChartEvent(const int id,
+                  const long &lparam,
+                  const double &dparam,
+                  const string &sparam){
+   if(id == CHARTEVENT_OBJECT_CLICK){
+      if(sparam == "btnCloseAll"){
+         closeAll();
+      }
+      
+      if(sparam == "btnProtectAll"){
+         protectPositions(100);
+      }
+      
+      if(sparam == "btnAddSupport") {
+         string texto = ObjectGetString(0, "InputSuportes", OBJPROP_TEXT);
+         double valor = StringToDouble(texto);
+         AdicionarNaLista(valor);
+      }
+    
+   }
+}
+
+//+------------------------------------------------------------------+
+int OnInit() { 
+   generateButtons();
+   ArrayResize(configs, ArraySize(tfs));
+   ArrayResize(supports, 500);
+   ArrayInitialize(supports, 0.0);
+   AdicionarNaLista(4000);
+   AdicionarNaLista(4220);
+   AdicionarNaLista(4625);
+   AdicionarNaLista(5360);
+   AdicionarNaLista(4475);
+   AdicionarNaLista(4325);
+   AdicionarNaLista(4840);
+   AdicionarNaLista(5030);
+   
+   for(int i = 0; i < ArraySize(tfs); i++) {
+      configs[i].tf = tfs[i];
+      configs[i].lastBarTime = 0;
+      configs[i].multiplier = TimeframeToMultiplier(tfs[i]);
+      configs[i].magicNumber = GetMagicNumberByTimeframe(tfs[i]);
+      configs[i].label = TimeframeToLabel(tfs[i]);
+      configs[i].tfSeconds = PeriodSeconds(tfs[i]);
+      configs[i].bordas.max = 9999999;
+      configs[i].bordas.min = 0;
+      configs[i].vendaPermitida = true;
+      configs[i].compraPermitida = true;
+      configs[i].tendencia = NONE;
+      configs[i].anterior = i-1;
+      configs[i].invalid = true;
+      
+      iniciarRobos(configs[i].robotEngolfoTendency, NUMBER_MAX_ROBOT);
+      iniciarRobos(configs[i].robotCrossTendency, NUMBER_MAX_ROBOT);
+      iniciarRobos(configs[i].robotAverageTendency, NUMBER_MAX_ROBOT);
+      iniciarRobos(configs[i].robotScalpe, NUMBER_MAX_ROBOT);
+      iniciarRobos(configs[i].robotTendency, NUMBER_MAX_ROBOT);
+      iniciarRobos(configs[i].robotPatterns, NUMBER_MAX_ROBOT);
+      iniciarRobos(configs[i].robotBotTop, NUMBER_MAX_ROBOT);
+      
+      iniciarRobos(configs[i].robotMulti, 1);
+   }
+
+   Print("Family MJ MultiTF iniciado com sucesso.");
+   return INIT_SUCCEEDED;
+}
+
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason) {
+   for(int i = 0; i < ArraySize(configs); i++) {
+      if(configs[i].cciHandle != INVALID_HANDLE)
+         IndicatorRelease(configs[i].cciHandle);
+   }
+}
+
+//+------------------------------------------------------------------+
+void OnTick() {
+   if(!IS_TEST) {
+      showComments();
+   }
+   
+   if (BLOQUEAR_POSICOES) {
+      return;
+   }
+   
+   if (IsNewDay()){ 
+      MAX_LOSS_ATINGIDO = false;
+      BALANCE = AccountInfoDouble(ACCOUNT_BALANCE);
+      for(int i = 0; i < ArraySize(configs); i++)  {
+         configs[i].robotTendency.inLoss = false;
+         configs[i].robotEngolfoTendency.inLoss = false;
+         configs[i].robotAverageTendency.inLoss = false;
+         configs[i].robotCrossTendency.inLoss = false;
+         configs[i].robotScalpe.inLoss = false;
+         configs[i].robotMulti.inLoss = false;
+         configs[i].robotPatterns.inLoss = false;
+         configs[i].robotBotTop.inLoss = false;
+         atualizarToposEFundos(configs[i].tf);
+      }
+   }
+   
+   if(!IS_TEST) {
+      int totalOp = PositionsTotal();
+      if (totalOp > 0 && (MAX_LOSS_ATINGIDO || EmPerdaDiaria(LOSS_PER_DAY, "USD "))) {
+        MAX_LOSS_ATINGIDO = true;
+        printf("Perda maxima atingida.");
+        closeAll();
+        return;  
+      }
+      
+      if (!IS_SWING_TRADE) {
+         if (NovoCandle(PERIOD_M5)) {
+            if (totalOp > 0 && SimboloVaiFechar(_Symbol, 30)) {
+              printf("Mercado fechado!");
+              closeAll();
+              return;  
+            }
+            
+            if (!IGNORAR_NOTICIAS && ExisteProximaNoticia(_Symbol, 30)) {
+              printf("Noticia nos proximos 30 minutos!");
+              return;  
+            }
+         }
+      }
+   }
+   
+   if (MOVE_STOP != MOVE_STOP_NONE) {
+       MoveStopPorPontos();
+   }
+   
+   for(int i = 0; i < ArraySize(configs); i++)  {
+      configs[i].invalid = true;
+      configs[i].preco = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+/*
+      if(VOLUME_PRICE_VALIDATION && DeveEvitarOperacao(configs[i])) {
+         return;
+      }*/
+
+      // Continua a lógica da operação
+      if(!GetLastClosedCandles(configs[i].tf, configs[i].candles)) {
+         printf("Candles Nao Recuperados - " + EnumToString(configs[i].tf));
+         return;
+      } 
+      
+      if (!GetMovingAverage(configs[i], MV_9, configs[i].movingAverage)) {
+         printf("Media 9 Nao Recuperada - " + EnumToString(configs[i].tf));
+         return;
+      }   
+      
+      if (!GetMovingAverage(configs[i], MV_21, configs[i].movingAverage21)) {
+         printf("Media 21 Nao Recuperada - " + EnumToString(configs[i].tf));
+         return;
+      }   
+      
+      if (!GetMovingAverage(configs[i], MV_50, configs[i].movingAverage50)) {
+         printf("Media 50 Nao Recuperada - " + EnumToString(configs[i].tf));
+         return;
+      }   
+      
+      if (!GetMovingAverage(configs[i], MV_200, configs[i].movingAverage200)) {
+         printf("Media 200 Nao Recuperada - " + EnumToString(configs[i].tf));
+         return;
+      }   
+      
+      if (!GetMovingAverage(configs[i], MV_400, configs[i].movingAverage400)) {
+         printf("Media 400 Nao Recuperada - " + EnumToString(configs[i].tf));
+         return;
+      }   
+      
+      if (!GetAdx(configs[i])) {
+         printf("ADX Nao Recuperado - " + EnumToString(configs[i].tf));
+         return;
+      }   
+      
+      if (!GetAtr(configs[i])) {
+         printf("Atr Nao Recuperado - " + EnumToString(configs[i].tf));
+         return;
+      }
+      
+      /*/
+      if (!GetVolumes(configs[i])) {
+         printf("Volumes Nao Recuperados - " + EnumToString(configs[i].tf));
+         return;
+      }   
+      
+      if (!GetCci(configs[i])) {
+         printf("Cci Nao Recuperado - " + EnumToString(configs[i].tf));
+         return;
+      }*/
+        
+      configs[i].invalid = false;
+    //  configs[i].tendencia = AnalisarCandles(configs[i], QTD_CANDLES);
+      if(IsNewBar(configs[i])) {
+         int total = PositionsTotal();
+         resetarRobo(configs[i].robotEngolfoTendency, total);
+         resetarRobo(configs[i].robotAverageTendency, total);
+         resetarRobo(configs[i].robotCrossTendency, total);
+         resetarRobo(configs[i].robotTendency, total);
+         resetarRobo(configs[i].robotScalpe, total);
+         resetarRobo(configs[i].robotMulti, total);
+         resetarRobo(configs[i].robotPatterns, total);
+         resetarRobo(configs[i].robotBotTop, total);
+         
+         //DesenharMaximoMinimoMaisTocados(configs[i], 15, 10);
+      }
+      
+      if(getVolumeAtr(configs[i]) == 0) {
+         return;
+      }
+       
+      if(VOLUME_BORDERS > 0) {
+         ExecutarToposEFundos(configs[i]);
+      }
+    
+      /*        
+      if(ENABLE_FIBONACCI) {
+         if (configs[i].tfSeconds > PeriodSeconds(PERIOD_M5)) {
+            ExecutarFibonacci(configs[i]);
+         }
+      }
+      int remainingSeconds = calcularCandleTime(configs[i].tf);
+      if (remainingSeconds >= configs[i].tfSeconds * 0.2 ) {
+         //configs[i].vendaPermitida = (!VerificarTimeframeAnterior(SELL, anterior.tf) || !verificarBordas(configs[i], SELL));
+         //configs[i].compraPermitida = (!VerificarTimeframeAnterior(BUY, anterior.tf) || !verificarBordas(configs[i], BUY));
+        // if (VOLUME_ENGOLFO > 0) {
+        //    executarEngolfo(configs[i]);
+        // }
+         if (VOLUME_PATTERNS > 0) {
+           configs[i].pattern = createPattern(configs[i]);
+           executarPatterns(configs[i]);
+         }
+        
+         if (VOLUME_MULT_ROBOTS > 0) {
+            executarMultiRobos(configs[i]);
+         }
+         
+         if (configs[i].tfSeconds > PERIOD_M5) {
+            if (VOLUME_MEDIAS > 0) {
+               executarMedias(configs[i]);
+            }
+            
+            if (VOLUME_CRUZAMENTO > 0) {
+               executarCruzamento(configs[i]);
+            }
+            
+            if (VOLUME_TENDENCIA > 0) {
+               executarTendencia(configs[i]);
+            }
+         }
+      }
+      */
+ 
+   }
+} 
+
+// ==========================================================
+// Cria ordens Fibonacci
+// ==========================================================
+void ExecutarFibonacci( TimeframeConfig &config) {
+   FibonacciLevels fib;
+   double volume = VOLUME_TENDENCIA;
+
+   TypeNegotiation sinal = CalcularFibonacci(config, fib);
+   if(sinal == NONE) {
+      Print("Não foi possível calcular Fibonacci.");
+      return;
+   }
+
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+   // =======================================================
+   // BUY
+   // =======================================================
+   if(sinal == BUY) {
+      double niveis[] = {fib.fib382, fib.fib500, fib.fib618, fib.fib786};
+
+      for(int i = 0; i < ArraySize(niveis); i++) {
+         double preco = NormalizeDouble(niveis[i], _Digits);
+
+         if(preco >= ask) {
+            continue;
+         }
+
+         double stop = NormalizeDouble(CalcularPreco(preco, -2000), _Digits);
+         double take = NormalizeDouble(CalcularPreco(preco, 2000), _Digits);
+         string comentario = ("robotFibo_") + EnumToString(config.tf); 
+
+         trade.SetExpertMagicNumber(MAGIC_NUMBER);
+
+         if(!trade.BuyLimit(volume, preco, _Symbol, stop, take, ORDER_TIME_SPECIFIED, TimeTradeServer() + config.tfSeconds * QTD_CANDLES, comentario)) {
+            Print("Erro BuyLimit ", comentario, " | Retcode: ", trade.ResultRetcode(), " | ", trade.ResultRetcodeDescription());
+         } else {
+            Print("BuyLimit criada: ", comentario, " | Preço: ", preco, " | SL: ", stop, " | TP: ", take);
+         }
+      }
+   }
+
+   // =======================================================
+   // SELL
+   // =======================================================
+   if(sinal == SELL) {
+      double niveis[] = {fib.fib382, fib.fib500, fib.fib618, fib.fib786};
+
+      for(int i = 0; i < ArraySize(niveis); i++) {
+         double preco = NormalizeDouble(niveis[i], _Digits);
+
+         if(preco <= bid) {
+            continue;
+         }
+
+         double stop = NormalizeDouble(CalcularPreco(preco, 2000), _Digits);
+         double take = NormalizeDouble(CalcularPreco(preco, -2000), _Digits);
+         string comentario = "robotFibo_" + EnumToString(config.tf); 
+
+         trade.SetExpertMagicNumber(MAGIC_NUMBER);
+
+         if(!trade.SellLimit(volume, preco, _Symbol, stop, take, ORDER_TIME_SPECIFIED, TimeTradeServer() + config.tfSeconds * QTD_CANDLES, comentario)) {
+            Print("Erro SellLimit ", comentario, " | Retcode: ", trade.ResultRetcode(), " | ", trade.ResultRetcodeDescription());
+         } else {
+            Print("SellLimit criada: ", comentario, " | Preço: ", preco, " | SL: ", stop, " | TP: ", take);
+         }
+      }
+   }
+}
+void executarEngolfo(TimeframeConfig &config) {
+   double precoAtual = config.candles[0].close;
+   double highAtual = config.candles[0].high;
+   double lowAtual = config.candles[0].low;
+   if (invalidarExecucao(config.robotEngolfoTendency)){
+      return;
+   }
+   
+   string comentario = "robotEngolfoTendency_" + EnumToString(config.tf); 
+   double lastOpen = config.candles[2].open;
+   TypeNegotiation type = DetectarPressaoVolume(config);
+   if(CandlesEmparelhados(config.tf, 3, 200)) {
+      if (!TemPavioMaiorQueCorpo(config.candles[0]) && highAtual > lastOpen && highAtual > config.movingAverage21[0] 
+            && type == BUY) {
+         double stop = CalcularPontos(precoAtual, lastOpen);
+         double take = stop;
+   
+         if (TendenciaTerminou(config, BUY)) {
+            ExecutarNegociacao(BUY, VOLUME_TENDENCIA, stop, take, comentario, config.robotEngolfoTendency, true, config.candles[0].high, config.candles[0].low);
+            return;
+         }
+         ExecutarNegociacao(BUY, VOLUME_ENGOLFO, stop, take, comentario, config.robotEngolfoTendency);
+      } else if (!TemPavioMaiorQueCorpo(config.candles[0]) && lowAtual < lastOpen && lowAtual < config.movingAverage21[0] 
+            && type == SELL) {
+         double stop = CalcularPontos(precoAtual, lastOpen);
+         double take = stop;
+   
+         if (TendenciaTerminou(config, SELL)) {
+            ExecutarNegociacao(SELL, VOLUME_TENDENCIA, stop, take, comentario, config.robotEngolfoTendency, true, config.candles[0].high, config.candles[0].low);
+            return;
+         }
+         ExecutarNegociacao(SELL, VOLUME_ENGOLFO, stop, take, comentario, config.robotEngolfoTendency);
+      }
+   }
+}
+
+
+void executarCruzamento(TimeframeConfig &config) {
+   double precoAtual = config.candles[0].close;
+   double highAtual = config.candles[0].high;
+   double lowAtual = config.candles[0].low;
+   if (invalidarExecucao(config.robotCrossTendency)){
+      return;
+   }
+   
+   string comentario = "robotCrossTendency_" + EnumToString(config.tf);
+   if(config.adxMinusTendency != NONE  && config.adxPlusTendency != NONE && config.adxMinusTendency != config.adxPlusTendency) {
+      TypeNegotiation type = DetectarPressaoVolume(config);
+      if (!TemPavioMaiorQueCorpo(config.candles[0]) && IsBearish(config.candles[0])  && config.adxMinusTendency == BUY && config.adxMinus[0] > config.adxPlus[0] && config.adxMinus[4] < config.adxPlus[4]
+            && ((config.movingAverage21[0] > lowAtual && config.movingAverage[0] > lowAtual)) 
+            && type == SELL) {
+         double high = ObterExtremo(config, QTD_CANDLES, true);
+         double stop =  CalcularPontos(high, precoAtual);
+         double take = stop;
+   
+         if (TendenciaTerminou(config, SELL)) {
+            ExecutarNegociacao(SELL, VOLUME_TENDENCIA, stop, take, comentario, config.robotCrossTendency, true, config.candles[0].high, config.candles[0].low);
+            return;
+         }
+         ExecutarNegociacao(SELL, VOLUME_CRUZAMENTO, stop, take, comentario, config.robotCrossTendency);
+      }
+      
+      if (!TemPavioMaiorQueCorpo(config.candles[0]) && IsBullish(config.candles[0]) && config.adxMinusTendency == SELL  && config.adxMinus[0] < config.adxPlus[0]  && config.adxMinus[4] > config.adxPlus[4]
+            && ((config.movingAverage21[0] < highAtual && config.movingAverage[0] < highAtual)) 
+            && type == BUY) {
+         double low = ObterExtremo(config, QTD_CANDLES, false);
+         double stop =  CalcularPontos(low, precoAtual);
+         double take = stop;
+   
+         if (TendenciaTerminou(config, BUY)) {
+            ExecutarNegociacao(BUY, VOLUME_TENDENCIA, stop, take, comentario, config.robotCrossTendency, true, config.candles[0].high, config.candles[0].low);
+            return;
+         }
+         ExecutarNegociacao(BUY, VOLUME_CRUZAMENTO, stop, take, comentario, config.robotCrossTendency);
+      }
+   
+   }
+}
+
+void executarMedias(TimeframeConfig &config) {
+   double precoAtual = config.candles[0].close;
+   double highAtual = config.candles[0].high;
+   double lowAtual = config.candles[0].low;
+   if (invalidarExecucao(config.robotAverageTendency)){
+      return;
+   }
+   
+   string comentario = "robotAverageTendency_" + EnumToString(config.tf);
+   if (!TemPavioMaiorQueCorpo(config.candles[1]) && IsBearish(config.candles[1]) && IsBearish(config.candles[0]) && config.movingAverage[2] > lowAtual  && config.movingAverage21[0] > lowAtual) {
+      TypeNegotiation type = DetectarPressaoVolume(config);
+      if (type == SELL) {
+         double stop =  CalcularPontos(config.candles[1].high, precoAtual);
+         double take = stop;
+   
+         if (TendenciaTerminou(config, SELL)) {
+            ExecutarNegociacao(SELL, VOLUME_TENDENCIA, stop, take, comentario, config.robotAverageTendency, true, config.candles[0].high, config.candles[0].low);
+            return;
+         }
+         ExecutarNegociacao(SELL, VOLUME_MEDIAS, stop, take, comentario, config.robotAverageTendency);
+     }
+   } else if (!TemPavioMaiorQueCorpo(config.candles[1]) && IsBullish(config.candles[1]) && IsBullish(config.candles[0]) && config.movingAverage[0] < highAtual  && config.movingAverage21[0] < highAtual) {
+     TypeNegotiation type = DetectarPressaoVolume(config);
+     if (type == BUY) {
+         double stop =  CalcularPontos(config.candles[1].low, precoAtual);
+         double take = stop;
+   
+         if (TendenciaTerminou(config, BUY)) {
+            ExecutarNegociacao(BUY, VOLUME_TENDENCIA, stop, take, comentario, config.robotAverageTendency, true, config.candles[0].high, config.candles[0].low);
+            return;
+         }
+         ExecutarNegociacao(BUY, VOLUME_MEDIAS, stop, take, comentario, config.robotAverageTendency);
+     }
+   }
+}
+
+void executarTendencia(TimeframeConfig &config) {
+   double precoAtual = config.candles[0].close;
+   double highAtual = config.candles[0].high;
+   double lowAtual = config.candles[0].low;
+   if (invalidarExecucao(config.robotTendency)){
+      return;
+   }
+   
+   string comentario = "robotTendency_" + EnumToString(config.tf);
+   int initialTendency = getCandleTendecy(1  , QTD_CANDLES, 1, true, 0, config);
+   bool diff =  MathAbs(config.adxPlus[0] - config.adxMinus[0])  > 10;
+   
+   if(!TemPavioMaiorQueCorpo(config.candles[0]) && IsBearish(config.candles[0]) && initialTendency == -1  && diff){
+      TypeNegotiation type = DetectarPressaoVolume(config);
+      if (config.movingAverage[1] > lowAtual && config.movingAverage[2] > lowAtual 
+         && config.adxMinus[0] > config.adxPlus[0]  && type == SELL) {
+         double high = ObterExtremo(config, QTD_CANDLES, true);
+         double stop =  CalcularPontos(high, precoAtual);
+         double take = stop;
+   
+         if (TendenciaTerminou(config, SELL)) {
+            ExecutarNegociacao(SELL, VOLUME_TENDENCIA, stop, take, comentario, config.robotTendency, true, config.candles[0].high, config.candles[0].low);
+            return;
+         }
+         ExecutarNegociacao(SELL, VOLUME_TENDENCIA, stop, take, comentario, config.robotTendency);
+      }
+   } else  if(!TemPavioMaiorQueCorpo(config.candles[0]) && IsBullish(config.candles[0]) && initialTendency == 1 && diff ){
+      TypeNegotiation type = DetectarPressaoVolume(config);
+      if (config.movingAverage[1] < highAtual  && config.movingAverage[2] < highAtual 
+         && config.adxPlus[0] > config.adxMinus[0] && type == BUY) {
+         double low = ObterExtremo(config, QTD_CANDLES, false);
+         double stop =  CalcularPontos(low, precoAtual);
+         double take = stop;
+   
+         if (TendenciaTerminou(config, BUY)) {
+            ExecutarNegociacao(BUY, VOLUME_TENDENCIA, stop, take, comentario, config.robotTendency, true, config.candles[0].high, config.candles[0].low);
+            return;
+         }
+         ExecutarNegociacao(BUY, VOLUME_TENDENCIA, stop, take, comentario, config.robotTendency);
+      }
+   }
+}
+
+void ExecutarToposEFundos(TimeframeConfig &config){
+   if (invalidarExecucao(config.robotBotTop)){
+      return;
+   }
+   
+   string comentario = "robotBotTop_" + EnumToString(config.tf);
+   TypeNegotiation tipo = NONE;
+   BordersOperation border;
+   border.instantiated = false;
+   if (config.movingAverage[0] > config.preco && config.movingAverage21[0] > config.preco && config.movingAverage50[0] > config.preco) {
+      border = EncontrarZonaAtual(config.preco);
+      tipo = SELL;
+   } else if (config.movingAverage[0] < config.preco && config.movingAverage21[0] < config.preco && config.movingAverage50[0] < config.preco) {
+      border = EncontrarZonaAtual(config.preco);
+      tipo = BUY;
+   }
+      
+  if (border.instantiated){
+      double diffSup = CalcularPontos(config.preco, border.max);
+      double difInf = CalcularPontos(config.preco, border.min);
+      if (IsBearish(config.candles[0]) && tipo == SELL && config.movingAverage200[0] < config.preco) {
+         if (config.candles[1].open > border.max && config.candles[0].close < border.max) {
+            double stop = CalcularPontos(config.preco, config.candles[1].high);
+            double take = stop;
+            ExecutarNegociacao(tipo, VOLUME_BORDERS, stop, take, comentario, config.robotBotTop);
+         }else if (config.candles[1].open > border.min && config.candles[0].close < border.min) {
+            double stop = CalcularPontos(config.preco, config.candles[1].high);
+            double take = stop;
+            ExecutarNegociacao(tipo, VOLUME_BORDERS, stop, take, comentario, config.robotBotTop);
+         }
+      }else if (IsBullish(config.candles[0]) && tipo == BUY && config.movingAverage200[0] > config.preco) {
+         if (config.candles[1].open < border.max && config.candles[0].close > border.max) {
+            double stop = CalcularPontos(config.preco, config.candles[1].low);
+            double take = stop;
+            ExecutarNegociacao(tipo, VOLUME_BORDERS, stop, take, comentario, config.robotBotTop);
+         } else if (config.candles[1].open < border.min && config.candles[0].close > border.min) {
+            double stop = CalcularPontos(config.preco, config.candles[1].low);
+            double take = stop;
+            ExecutarNegociacao(tipo, VOLUME_BORDERS, stop, take, comentario, config.robotBotTop);
+         }
+      }
+   } /**/
+  
+}
+
+void executarPatterns(TimeframeConfig &config){
+   if (invalidarExecucao(config.robotPatterns)){
+      return;
+   }
+   
+   string comentario = "robotPatterns_" + EnumToString(config.tf);
+   TimeFrameCandle pat = VerificarSePatternEncontrado(config.pattern);
+   TimeFrameCandle patAnt = VerificarSePatternEncontrado(config.getAnterior().pattern);
+   if (pat.updated && patAnt.updated){
+      TypeNegotiation type = DetectarPressaoVolume(config);
+      if (pat.type == patAnt.type && type == pat.type ) {
+         TimeFrameCandle executor = pat.take > patAnt.take ? pat : patAnt;
+         if (TendenciaTerminou(config, executor.type)) {
+            ExecutarNegociacao(executor.type, VOLUME_TENDENCIA, executor.stop, executor.take, comentario, config.robotPatterns, true, config.candles[0].high, config.candles[0].low);
+            return;
+         }
+         ExecutarNegociacao(executor.type, VOLUME_PATTERNS, executor.stop, executor.take, comentario, config.robotPatterns);
+      }
+      
+   }
+   
+}
+
+void executarMultiRobos(TimeframeConfig &config){
+   int countBuy = 0;
+   int countSell = 0;
+   
+   datetime agora = TimeTradeServer();
+   int mult = MinutosEntreDatas(habilitaMultiRobots, agora);
+   if (mult <= 3) {
+      return;
+   }
+   
+   if (invalidarExecucao(config.robotMulti)){
+      return;
+   }
+   
+   for(int i = 0; i < ArraySize(configs); i++) {
+      if (configs[i].tfSeconds < PeriodSeconds(PERIOD_H1)){
+         if (configs[i].tendencia == BUY) {
+            countBuy++;
+         } else if (configs[i].tendencia == SELL) {
+            countSell++;
+         }
+      }
+   }
+   
+   int qtdTfs = ArraySize(tfs) / 2;
+   string comentario = "robotMulti_" + EnumToString(config.tf); 
+   if (countSell >= qtdTfs && countBuy == 0) {
+      TimeFrameCandle bordasSell = countPositionsInProfit(SELL);
+      TimeFrameCandle bordasBuy = countPositionsInProfit(BUY);
+      TypeNegotiation type = DetectarPressaoVolume(config);
+      if (bordasSell.counter > 0 && bordasSell.counter > bordasBuy.counter && type == SELL) {
+         habilitaMultiRobots = agora;
+         if (TendenciaTerminou(config, type)) {
+            ExecutarNegociacao(type, VOLUME_TENDENCIA, bordasSell.stop, bordasSell.take, comentario, config.robotMulti, true, config.candles[0].high, config.candles[0].low);
+            return;
+         }
+         ExecutarNegociacao(SELL, VOLUME_MULT_ROBOTS, bordasSell.stop, bordasSell.take, comentario, config.robotMulti);
+      }
+   } else if (countBuy >= qtdTfs && countSell == 0) {
+      TimeFrameCandle bordasSell = countPositionsInProfit(SELL);
+      TimeFrameCandle bordasBuy = countPositionsInProfit(BUY);
+      TypeNegotiation type = DetectarPressaoVolume(config);
+      
+      if (bordasBuy.counter > 0 && bordasSell.counter < bordasBuy.counter && type == BUY) {
+         habilitaMultiRobots = agora;
+         if (TendenciaTerminou(config, type)) {
+            ExecutarNegociacao(type, VOLUME_TENDENCIA, bordasBuy.stop, bordasBuy.take, comentario, config.robotMulti, true, config.candles[0].high, config.candles[0].low);
+            return;
+         }
+         ExecutarNegociacao(BUY, VOLUME_MULT_ROBOTS, bordasBuy.stop, bordasBuy.take, comentario, config.robotMulti);
+      }
+   }
+}
+
+bool ExecutarNegociacao(TypeNegotiation tipoNegociacao, double volume,  double pontosStop, double pontosTake, string comentario, TimeFrameRobot &robot, bool realizarLimit = false, double candleHigh = 0, double candleLow = 0) {
+    if(pontosStop <= 0 || pontosTake <= 0)
+      return false;
+      
+   if(POINTS_TARGET != 0) {
+      pontosTake = pontosTake < POINTS_TARGET ? pontosTake : POINTS_TARGET;
+      pontosStop = pontosStop < POINTS_TARGET ? pontosStop : POINTS_TARGET;
+   }
+      
+   double preco = 0;
+   double stop = 0;
+   double take = 0;
+   bool ordemExecutada = false;
+   trade.SetExpertMagicNumber(MAGIC_NUMBER);
+   if(tipoNegociacao == BUY) {
+      preco = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+
+      stop = preco - (pontosStop * _Point);
+      take = preco + (pontosTake * _Point) * PROPORTION_TAKE_STOP;
+
+      stop = NormalizeDouble(stop, _Digits);
+      take = NormalizeDouble(take, _Digits);
+   
+      if (preco > take || stop > preco) {
+         return false;
+      }
+
+      AjustarStopTake(BUY, stop, take);
+      if (realizarLimit) {
+         if(!AbrirOrdemLimit(tipoNegociacao, volume, pontosStop, pontosTake, comentario, candleHigh - candleLow, 20)) {
+            Print("Erro ao executar compra: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription(), " - ", comentario);
+            return false;
+         }
+      } else {
+         if(!trade.Buy(volume,  _Symbol,  preco, stop,  take, comentario)) {
+            Print("Erro ao executar compra: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription(), " - ", comentario);
+            return false;
+         }
+      }
+      ordemExecutada = true;
+   } else if(tipoNegociacao == SELL) {
+      preco = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+      stop = preco + (pontosStop * _Point);
+      take = preco - (pontosTake * _Point) * PROPORTION_TAKE_STOP;
+
+      stop = NormalizeDouble(stop, _Digits);
+      take = NormalizeDouble(take, _Digits);
+      
+      if (preco < take || stop < preco) {
+         return false;
+      }
+      
+      AjustarStopTake(SELL, stop, take);
+      if (realizarLimit) {
+         if(!AbrirOrdemLimit(tipoNegociacao, volume, pontosStop, pontosTake, comentario, candleHigh - candleLow, 20)) {
+            Print("Erro ao executar compra: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription(), " - ", comentario);
+            return false;
+         }
+      } else {
+         if(!trade.Sell(volume,  _Symbol,  preco, stop,  take, comentario)) {
+            Print("Erro ao executar venda: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription(), " - ", comentario);
+            return false;
+         }
+      }
+      ordemExecutada = true;
+   }
+
+   if (ordemExecutada && robot.counter >= 0) { 
+      if (ENABLE_TWOWAY_POSITION) {
+         DadosOrdem dados;
+         GerarOrdemNaoConfiavel(volume, tipoNegociacao, stop, take, dados);
+         preco = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+         if (dados.tipo == SELL) {
+            trade.Sell(dados.volume,  _Symbol,  preco, dados.stop,  dados.take, "TWOWAY" + comentario);
+         }
+         if (dados.tipo == BUY) {
+            trade.Buy(dados.volume,  _Symbol,  preco, dados.stop,  dados.take, "TWOWAY" + comentario);
+         }
+      }
+      
+      if (robot.isNull) {
+         return true;
+      }  
+   
+      if (robot.counter >= 5) {
+         robot.inLoss = verificarPerdaRobo(robot, 5, preco);
+      } 
+      
+      if (robot.counter >= ArraySize(robot.historic)) {
+         robot.counter = 0;
+      } 
+      
+      robot.waitNewCandle = true;
+      robot.maxRobots--;
+      robot.historic[robot.counter].volume = volume;
+      robot.historic[robot.counter].time = TimeCurrent();
+      robot.historic[robot.counter].type = tipoNegociacao;
+      robot.historic[robot.counter].take = take;
+      robot.historic[robot.counter].stop = stop;
+      robot.historic[robot.counter].ticket = trade.ResultOrder();
+      robot.counterPositions++;
+      robot.counter++;
+   }
+
+   return ordemExecutada;
+}
+
+bool AbrirOrdemLimit(TypeNegotiation tipoNegociacao, double volume, double pontosStop, double pontosTake, string comentario, double tamanhoCandle = 0, double percentual = 30.0) {
+   double precoAtual = 0;
+   double preco = 0;
+   double stop = 0;
+   double take = 0;
+
+   if(tamanhoCandle <= 0) {
+      return false;
+   }
+
+   // Distância correspondente a 20% do candle
+   double distanciaLimit = tamanhoCandle * (percentual / 100.0);
+   datetime expiracao = TimeTradeServer() + (30 * 60);
+
+   trade.SetExpertMagicNumber(MAGIC_NUMBER);
+
+   // =========================
+   // BUY LIMIT
+   // =========================
+   if(tipoNegociacao == BUY) {
+
+      precoAtual = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+
+      // 20% do candle abaixo do preço atual
+      preco = precoAtual - distanciaLimit;
+
+      // Stop e Take calculados a partir da entrada LIMIT
+      stop = preco - ((pontosStop + distanciaLimit) * _Point);
+      take = preco + ((pontosTake + distanciaLimit) * _Point);
+
+      preco = NormalizeDouble(preco, _Digits);
+      stop  = NormalizeDouble(stop, _Digits);
+      take  = NormalizeDouble(take, _Digits) * PROPORTION_TAKE_STOP;
+
+      // BUY LIMIT precisa estar abaixo do Ask
+      if(preco >= precoAtual) {
+         Print("BUY LIMIT inválido.");
+         return false;
+      }
+
+      if(stop >= preco || take <= preco) {
+         Print("Stop/Take inválidos para BUY LIMIT.");
+         return false;
+      }
+
+      AjustarStopTake(BUY, stop, take);
+      if(!trade.BuyLimit(volume, preco, _Symbol,  stop, take, ORDER_TIME_SPECIFIED, expiracao,  comentario )) {
+         Print("Erro ao colocar BUY LIMIT: ", trade.ResultRetcode(),  " - ",  trade.ResultRetcodeDescription(), " - ", comentario );
+
+         return false;
+      }
+
+      Print(
+         "BUY LIMIT criada | Atual: ", precoAtual,
+         " | Candle: ", tamanhoCandle,
+         " | Distância: ", distanciaLimit,
+         " | Entrada: ", preco,
+         " | Stop: ", stop,
+         " | Take: ", take
+      );
+
+      return true;
+   }
+
+   // =========================
+   // SELL LIMIT
+   // =========================
+   if(tipoNegociacao == SELL) {
+
+      precoAtual = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+      // 20% do candle acima do preço atual
+      preco = precoAtual + distanciaLimit;
+
+      // Stop e Take calculados a partir da entrada LIMIT
+      stop = preco + ((pontosStop - distanciaLimit) * _Point);
+      take = preco - ((pontosTake - distanciaLimit)* _Point) * PROPORTION_TAKE_STOP;
+
+      preco = NormalizeDouble(preco, _Digits);
+      stop  = NormalizeDouble(stop, _Digits);
+      take  = NormalizeDouble(take, _Digits);
+
+      // SELL LIMIT precisa estar acima do Bid
+      if(preco <= precoAtual) {
+         Print("SELL LIMIT inválido.");
+         return false;
+      }
+
+      if(stop <= preco || take >= preco) {
+         Print("Stop/Take inválidos para SELL LIMIT.");
+         return false;
+      }
+
+      AjustarStopTake(SELL, stop, take);
+
+      if(!trade.SellLimit( volume, preco, _Symbol, stop, take, ORDER_TIME_SPECIFIED,  expiracao, comentario  )) {
+         Print("Erro ao colocar SELL LIMIT: ", trade.ResultRetcode(),  " - ",  trade.ResultRetcodeDescription(), " - ", comentario );
+
+         return false;
+      }
+
+      Print(
+         "SELL LIMIT criada | Atual: ", precoAtual,
+         " | Candle: ", tamanhoCandle,
+         " | Distância: ", distanciaLimit,
+         " | Entrada: ", preco,
+         " | Stop: ", stop,
+         " | Take: ", take
+      );
+
+      return true;
+   }
+
+   return false;
+}
+
+bool invalidarExecucao(TimeFrameRobot &robot) {
+   if (robot.maxRobots <= 0){
+      return true;
+   }
+   
+   if (robot.waitNewCandle){
+      return true;
+   }
+   
+   if (robot.inLoss){
+     // return true;
+   }
+   
+   if (IsMaxRobots()){
+      return true;
+   }
+   
+   return false;
+}
+
+void resetarRobo(TimeFrameRobot &robot, int totalPositions) {
+   robot.waitNewCandle = false;
+   
+   if (totalPositions == 0 && robot.maxRobots <= 0) {
+      robot.maxRobots = NUMBER_MAX_ROBOT;
+   }
+}
+
+double getVolumeAtr(TimeframeConfig &config) {
+   double tendenciaExtrapolada = IsTrendSaturated(config);
+   if (tendenciaExtrapolada == 0) {
+      return 0;
+   }
+   
+   return NormalizeDouble(tendenciaExtrapolada, _Digits);
+}
+
+void DesenharLinhaHorizontal(string label, double ponto, color cor) {
+   string nome = label;
+
+   // Se já existir, apenas atualiza o preço e a cor
+   if(ObjectFind(0, nome) >= 0) {
+      ObjectSetDouble(0, nome, OBJPROP_PRICE, ponto);
+      ObjectSetInteger(0, nome, OBJPROP_COLOR, cor);
+      return;
+   }
+
+   // Cria a linha
+   if(ObjectCreate(0, nome, OBJ_HLINE, 0, 0, ponto)) {
+      ObjectSetInteger(0, nome, OBJPROP_COLOR, cor);
+      ObjectSetInteger(0, nome, OBJPROP_WIDTH, 2);
+      ObjectSetInteger(0, nome, OBJPROP_STYLE, STYLE_SOLID);
+   }
+
+   ChartRedraw();
+}
+
+bool verificarBordas(TimeframeConfig &config, TypeNegotiation type) {
+   double precoAtual = config.candles[0].close;\
+   if (!VOLUME_ROMPIMENTO_BORDA) {
+      return true;   
+   }
+   
+   if(config.bordas.min == 0) {
+      return true;
+   }
+   
+   if (type == BUY && (precoAtual >= config.bordas.max)) {
+      return true;
+   }
+   
+   if (type == SELL && (precoAtual <= config.bordas.min)) {
+      return true;
+   }
+   
+   return false;
+}
+
+bool verificarPerdaRobo(TimeFrameRobot &robot, int max, double precoAtual) {
+   int counter = 0;
+   if (robot.counter < max || precoAtual == 0) {
+      return false;
+   }
+   
+   for (int i = 0; i < robot.counter; i++) {
+      if (!robot.historic[i].updated) {
+         if (precoAtual >= robot.historic[i].take && robot.historic[i].type == BUY) {
+            robot.historic[i].updated = true;
+            robot.historic[i].win = true;
+         } else if (precoAtual <= robot.historic[i].take && robot.historic[i].type == SELL) {
+            robot.historic[i].updated = true;
+            robot.historic[i].win = true;
+         }
+         
+         if (precoAtual >= robot.historic[i].stop && robot.historic[i].type == SELL) {
+            robot.historic[i].updated = true;
+            robot.historic[i].win = false;
+         } else if (precoAtual <= robot.historic[i].stop && robot.historic[i].type == BUY) {
+            robot.historic[i].updated = true;
+            robot.historic[i].win = false;
+         }
+      }
+      
+      if (!robot.historic[i].win && robot.historic[i].updated) {
+         counter++;
+      }
+   }
+   
+   return counter >= max;
+}
+
+void iniciarRobos(TimeFrameRobot &robot, int number) {
+   robot.inLoss = false;
+   robot.counter = 0;
+   robot.counterPositions = 0;
+   robot.waitNewCandle = false;
+   robot.maxRobots = number;
+   robot.isNull = false;
+   
+   for(int j = 0; j < ArraySize(robot.historic); j++) {
+      robot.historic[j].type = NONE; 
+      robot.historic[j].win = false;
+      robot.historic[j].updated = false;
+   }  
+}
+
+MaximosMinimos getMinOrMax(int start, int end, MqlRates &candles[]) {
+   double high = 0;
+   double low = 999999;
+   double minClose = 999999;
+   double minOpen = 999999;
+   double maxClose = 0;
+   double maxOpen = 0;
+   MaximosMinimos maxMin;
+   
+   for(int i = start; i <= end; i++) {
+      if (candles[i].low < low) {
+         low = candles[i].low;
+      }
+      if (candles[i].high > high) {
+         high = candles[i].high;
+      }
+      if (candles[i].close < minClose) {
+         minClose = candles[i].close;
+      }
+      if (candles[i].close > maxClose) {
+         maxClose = candles[i].close;
+      }
+      if (candles[i].open < minOpen) {
+         minOpen = candles[i].open;
+      }
+      if (candles[i].open > maxOpen) {
+         maxOpen = candles[i].open;
+      }
+   }
+
+   maxMin.low = low;
+   maxMin.high = high;
+   maxMin.minClose = minClose;
+   maxMin.minOpen = minOpen;
+   maxMin.maxClose = maxClose;
+   maxMin.maxOpen = maxOpen;
+
+   return maxMin;
+   
+}
+
+double CalcularPontos(double preco1, double preco2, bool isAbs = true) {
+   if (isAbs) {
+      return MathRound(MathAbs((preco1 - preco2) / _Point));
+   }
+   
+   return MathRound((preco1 - preco2) / _Point);
+}
+
+bool CandlesEmparelhados(ENUM_TIMEFRAMES tf, int n, int distanciaMaximaPontos) {
+   if(n < 2)
+      return false;
+
+   for(int i = n; i >= 1; i--){
+      double open  = iOpen(_Symbol, tf, i);
+      double close = iClose(_Symbol, tf, i);
+      double high  = iHigh(_Symbol, tf, i);
+      double low   = iLow(_Symbol, tf, i);
+
+      // =====================================================
+      // VERIFICA O TAMANHO DO CORPO
+      // =====================================================
+
+      double corpo = MathAbs(close - open);
+      double amplitude = high - low;
+
+      if(amplitude <= 0)
+         return false;
+
+      // Corpo precisa ter pelo menos 60% da amplitude
+      if((corpo / amplitude) < 0.60)
+         return false;
+
+      // =====================================================
+      // VERIFICA EMPARELHAMENTO
+      // =====================================================
+
+      if(i > 1)
+      {
+         double openProximo = iOpen(_Symbol, tf, i - 1);
+
+         int distancia = (int)MathRound(
+            MathAbs(close - openProximo) / _Point
+         );
+
+         if(distancia > distanciaMaximaPontos)
+            return false;
+
+         // =================================================
+         // VERIFICA SE OS CANDLES ESTÃO AO CONTRÁRIO
+         // =================================================
+
+         bool candleAtualAlta = close > open;
+         bool candleProximoAlta = iClose(_Symbol, tf, i - 1) >
+                                  iOpen(_Symbol, tf, i - 1);
+
+         // Os dois não podem ter a mesma direção
+         if(candleAtualAlta == candleProximoAlta)
+            return false;
+      }
+   }
+
+   return true;
+}
+
+bool IsBullish(const MqlRates &candle) {
+   return candle.close > candle.open;
+}
+
+//+------------------------------------------------------------------+
+bool IsBearish(const MqlRates &candle) {
+   return candle.close < candle.open;
+}
+
+//+------------------------------------------------------------------+
+bool IsNewBar(TimeframeConfig &config) {
+   datetime currentBarTime = iTime(_Symbol, config.tf, 0);
+
+   if(currentBarTime == 0)
+      return false;
+
+   if(config.lastBarTime == 0)
+   {
+      config.lastBarTime = currentBarTime;
+      return false;
+   }
+
+   if(currentBarTime != config.lastBarTime)
+   {
+      config.lastBarTime = currentBarTime;
+      return true;
+   }
+
+   return false;
+}
+
+bool HasNewCandle(ENUM_TIMEFRAMES timeframe){
+   static datetime lastCandleTime[];
+
+   // Inicializa array se necessário
+   if(ArraySize(lastCandleTime) == 0)
+   {
+      ArrayResize(lastCandleTime, PERIOD_MN1 + 1);
+      ArrayInitialize(lastCandleTime, 0);
+   }
+
+   datetime currentCandle = iTime(_Symbol, timeframe, 0);
+
+   // Novo candle detectado
+   if(lastCandleTime[timeframe] != currentCandle)
+   {
+      lastCandleTime[timeframe] = currentCandle;
+      return true;
+   }
+
+   return false;
+}
+
+
+bool GetLastClosedCandles(ENUM_TIMEFRAMES tf, MqlRates &candles[]) {
+   ArraySetAsSeries(candles, true);
+   int copied = CopyRates(_Symbol, tf, 0, QTD_CANDLES * 2, candles);
+   if(copied < QTD_CANDLES) {
+      Print("Erro ao copiar candles de ", TimeframeToLabel(tf), ". Copiados: ", copied, " Erro: ", GetLastError());
+      return false;
+   }
+
+   return true;
+}
+
+bool GetAtr(TimeframeConfig &config) {   
+   // Handle MA
+   int atrHandle = iATR(_Symbol, config.tf, 14);
+   if(atrHandle == INVALID_HANDLE)
+      return false;
+      
+   if(CopyBuffer(atrHandle, 0, 0, QTD_ITEMS, config.atr) <= 0)
+      return false;
+
+   ArrayReverse(config.atr);
+   return true;
+}
+
+bool GetCci(TimeframeConfig &config) { 
+   // Handle ADX
+   int handleCCI = iCCI(_Symbol, config.tf, 14, PRICE_TYPICAL);
+   if(handleCCI == INVALID_HANDLE)
+      return false;
+      
+   if(CopyBuffer(handleCCI, 0, 0, QTD_ITEMS, config.cci) <= 0)
+      return false;
+      
+   ArrayReverse(config.cci);
+   return true;
+}
+
+bool GetVolumes(TimeframeConfig &config) {   
+   int handleVolume = iVolumes(_Symbol, config.tf, VOLUME_TICK);
+   if(handleVolume == INVALID_HANDLE) {
+      return false;
+   }
+   
+   if(CopyBuffer(handleVolume, 0, 1, QTD_ITEMS, config.volumes) <= 0) {
+      return false;
+   }
+      
+   ArrayReverse(config.volumes);
+   return true;
+}
+
+bool GetAdx(TimeframeConfig &config) { 
+   int handleADX = iADX(_Symbol, config.tf, 14);
+   if(handleADX == INVALID_HANDLE)
+      return false;
+
+   if(CopyBuffer(handleADX, 0, 0, QTD_ITEMS, config.adx) <= 0  
+      ||  CopyBuffer(handleADX, 2, 0, QTD_ITEMS, config.adxMinus) <= 0 
+      || CopyBuffer(handleADX, 1, 0, QTD_ITEMS, config.adxPlus) <= 0)
+      return false;
+      
+   ArrayReverse(config.adx);
+   ArrayReverse(config.adxMinus);
+   ArrayReverse(config.adxPlus);
+   
+   for (int i = 0; i < 3; i++) {
+      config.adxTendency = ValidateListTendency(config.adx);
+      config.adxMinusTendency = ValidateListTendency(config.adxMinus);
+      config.adxPlusTendency = ValidateListTendency(config.adxPlus);
+   }   
+       
+       
+   return true;
+}
+
+TypeNegotiation ValidateListTendency(double &values[]) {
+   int buyCount = 0, sellCount = 0, counter = 3;
+
+   for (int i = counter+1; i > 0; i--) {
+      if (values[i] > values[i-1]) {
+         sellCount++;
+      } else {
+         buyCount++;
+      }
+   }  
+   
+   if (buyCount >= counter || (sellCount >= counter && values[0] > values[counter])) {
+      return BUY;
+   } 
+   
+   if (sellCount >= counter || (buyCount >= counter && values[0] < values[counter])) {
+      return SELL;
+   }
+   
+   return NONE;
+}
+
+double getBodyOrWick(MqlRates &candle, bool body) {
+   double bodyCandle = CalcularPontos(candle.close, candle.open);
+   if(body) {
+      return bodyCandle;
+   } 
+   
+   return MathAbs(bodyCandle - CalcularPontos(candle.high, candle.low));
+}
+
+int getCandleTendecy(int start, int end, int limit, bool ignoreType, double bodySize, TimeframeConfig &config) {
+   int bearishCount = 0;
+   int bullishCount = 0;
+   int low = 0;
+   int high = 0;
+   for(int i = start; i < end; i++) {
+      double body = getBodyOrWick(config.candles[i], true);
+      double wick = getBodyOrWick(config.candles[i], false);
+      
+      if(i+1 < end ) {
+         if(config.candles[i+1].open > config.candles[i].close 
+            && body > wick * bodySize  / 100
+            && config.candles[i+1].high > config.candles[i].high 
+            && (ignoreType || (IsBearish(config.candles[i+1]) && IsBearish(config.candles[i])))
+            ) {
+            bearishCount++;
+         }
+
+         if(config.candles[i+1].open < config.candles[i].close 
+            && body > wick * bodySize / 100
+            && config.candles[i+1].low < config.candles[i].low 
+            && (ignoreType || (IsBullish(config.candles[i+1]) && IsBullish(config.candles[i])))
+           ) {
+            bullishCount++;
+         }
+      }
+   }
+
+   if(bearishCount > bullishCount && bearishCount >= limit){
+      return -1;
+   }
+   else if(bullishCount > bearishCount && bullishCount >= limit) {
+      return 1;
+   }
+   
+   return 0;
+}
+
+bool GetMovingAverage(TimeframeConfig &config, int period, double &buffer[]) {   
+   // Handle MA
+   int handleMA = iMA(_Symbol, config.tf, period, 0, MODE_EMA, PRICE_CLOSE);
+   if(handleMA == INVALID_HANDLE)
+      return false;
+
+   if(CopyBuffer(handleMA, 0, 0, QTD_ITEMS, buffer) <= 0)
+      return false;
+   
+   ArrayReverse(buffer);
+   return true;
+}
+
+bool IsMaxRobots() {
+   if (NUMBER_MAX_ROBOT == 0) {
+      return false;
+   }
+
+   int count = 0;
+   if (VOLUME_CRUZAMENTO > 0) {
+      count++;
+   }
+   if (VOLUME_ENGOLFO > 0) {
+    //  count++;
+   }
+   if (VOLUME_MEDIAS > 0) {
+      count++;
+   }
+   if (VOLUME_TENDENCIA > 0) {
+      count++;
+   }
+   if (VOLUME_PATTERNS > 0) {
+      count++;
+   }
+   if (VOLUME_MULT_ROBOTS > 0) {
+      count++;
+   }
+   if (VOLUME_BORDERS > 0) {
+      count++;
+   }
+   
+   return PositionsTotal() > NUMBER_MAX_ROBOT * count;
+}
+
+void DesenharMaximoMinimoMaisTocados(TimeframeConfig &config, int qtdCandles, int n){
+   if(qtdCandles < 5)
+      return;
+      
+      
+   int min = 5;
+   // =========================================================
+   // PROCURA OS 3 ÚLTIMOS TOPOS
+   // =========================================================
+
+   double topos[5];
+   int qtdTopos = 0;
+   double fundos[5];
+   int qtdFundos = 0;
+   ENUM_TIMEFRAMES tf = config.tf;
+   for(int i = 1; i < qtdCandles - 1 && qtdTopos < min; i++)
+   {
+      double openAnterior  = iOpen(_Symbol, tf, i + 1);
+      double closeAnterior = iClose(_Symbol, tf, i + 1);
+
+      double openAtual  = iOpen(_Symbol, tf, i);
+      double closeAtual = iClose(_Symbol, tf, i);
+
+      double openPosterior  = iOpen(_Symbol, tf, i - 1);
+      double closePosterior = iClose(_Symbol, tf, i - 1);
+
+      double topoAnterior  = MathMax(openAnterior, closeAnterior);
+      double topoAtual     = MathMax(openAtual, closeAtual);
+      double topoPosterior = MathMax(openPosterior, closePosterior);
+
+      if(topoAtual > topoAnterior && topoAtual > topoPosterior)
+      {
+         topos[qtdTopos] = topoAtual;
+         qtdTopos++;
+      }
+   }
+
+   // =========================================================
+   // PROCURA OS 3 ÚLTIMOS FUNDOS
+   // =========================================================
+
+   for(int i = 1; i < qtdCandles - 1 && qtdFundos < min; i++)
+   {
+      double openAnterior  = iOpen(_Symbol, tf, i + 1);
+      double closeAnterior = iClose(_Symbol, tf, i + 1);
+
+      double openAtual  = iOpen(_Symbol, tf, i);
+      double closeAtual = iClose(_Symbol, tf, i);
+
+      double openPosterior  = iOpen(_Symbol, tf, i - 1);
+      double closePosterior = iClose(_Symbol, tf, i - 1);
+
+      double fundoAnterior  = MathMin(openAnterior, closeAnterior);
+      double fundoAtual     = MathMin(openAtual, closeAtual);
+      double fundoPosterior = MathMin(openPosterior, closePosterior);
+
+      if(fundoAtual < fundoAnterior && fundoAtual < fundoPosterior)
+      {
+         fundos[qtdFundos] = fundoAtual;
+         qtdFundos++;
+      }
+   }
+
+   // =========================================================
+   // ENCONTRA O TOPO MAIS TOCADO
+   // =========================================================
+
+   double melhorTopo = 0;
+   int maiorQuantidadeTopo = 0;
+
+   for(int i = 0; i < qtdTopos; i++)
+   {
+      int quantidade = 0;
+
+      for(int j = 0; j < qtdCandles; j++)
+      {
+         double open  = iOpen(_Symbol, tf, j);
+         double close = iClose(_Symbol, tf, j);
+
+         if(open == topos[i] || close == topos[i])
+            quantidade++;
+      }
+
+      if(quantidade > maiorQuantidadeTopo)
+      {
+         maiorQuantidadeTopo = quantidade;
+         melhorTopo = topos[i];
+      }
+   }
+
+   // =========================================================
+   // ENCONTRA O FUNDO MAIS TOCADO
+   // =========================================================
+
+   double melhorFundo = 0;
+   int maiorQuantidadeFundo = 0;
+
+   for(int i = 0; i < qtdFundos; i++)
+   {
+      int quantidade = 0;
+
+      for(int j = 0; j < qtdCandles; j++)
+      {
+         double open  = iOpen(_Symbol, tf, j);
+         double close = iClose(_Symbol, tf, j);
+
+         if(open == fundos[i] || close == fundos[i])
+            quantidade++;
+      }
+
+      if(quantidade > maiorQuantidadeFundo)
+      {
+         maiorQuantidadeFundo = quantidade;
+         melhorFundo = fundos[i];
+      }
+   }
+
+   // =========================================================
+   // SE N > 0, VERIFICA QUANTOS CANDLES ESTÃO DENTRO
+   // DAS DUAS BORDAS
+   // =========================================================
+
+   if(n > 0 && melhorTopo > 0 && melhorFundo > 0)
+   {
+      int candlesDentroDasBordas = 0;
+
+      for(int i = 0; i < qtdCandles; i++)
+      {
+         double open  = iOpen(_Symbol, tf, i);
+         double close = iClose(_Symbol, tf, i);
+
+         bool openDentro =
+            open >= melhorFundo &&
+            open <= melhorTopo;
+
+         bool closeDentro =
+            close >= melhorFundo &&
+            close <= melhorTopo;
+
+         if(openDentro && closeDentro)
+            candlesDentroDasBordas++;
+      }
+
+      // Se NÃO tiver mais de N candles dentro das bordas,
+      // não desenha nenhuma das duas linhas.
+      if(candlesDentroDasBordas <= n)
+      {
+         return;
+      }
+   }
+
+   // =========================================================
+   // REMOVE LINHAS ANTERIORES
+   // =========================================================
+
+   ObjectDelete(0, "BordaSuperior");
+   ObjectDelete(0, "BordaInferior");
+
+   // =========================================================
+   // DESENHA TOPO MAIS TOCADO
+   // =========================================================
+
+   if(melhorTopo > 0 && melhorFundo > 0) {
+      DesenharLinhaHorizontal("BordaSuperior",  melhorTopo,  clrBlue);
+      DesenharLinhaHorizontal("BordaInferior",  melhorFundo,  clrBlue);
+      config.bordas.min = melhorFundo;
+      config.bordas.max = melhorTopo;
+   }
+
+   ChartRedraw();
+}
+
+
+
+double IsTrendSaturated(TimeframeConfig &config){
+   if(ATR_MINIMUM == ATR_0) {
+      return 1;
+   }
+   double precoAtual = config.candles[0].close;
+   // distância do preço para EMA50
+   double distanceMA = MathAbs(precoAtual - ((config.movingAverage[0] + config.movingAverage[1] + config.movingAverage[2]) / 3));
+   
+   // candle atual muito grande
+   double valAdx = 0, valTendency = 0, valAtrs = 0;
+   
+   if(config.adx[0] > 40)
+      return 0;
+      
+   bool isConsolidatedMA = IsMA50Consolidated(config);
+   if(isConsolidatedMA)
+      return 0;
+      
+   return GetFactor(distanceMA, GetAverageValue(config.atr, 3),  ATR_MINIMUM);
+}
+
+bool IsMA50Consolidated(TimeframeConfig &config) {
+   double slope = MathAbs(config.movingAverage[0] - config.movingAverage[10]);
+
+   double maxMA = config.movingAverage[0];
+   double minMA = config.movingAverage[0];
+
+   for(int i = 0; i < 15; i++) {
+      maxMA = MathMax(maxMA, config.movingAverage[i]);
+      minMA = MathMin(minMA, config.movingAverage[i]);
+   }
+
+   double atr = GetAverageValue(config.atr, 3);
+   return slope < atr * 0.2 && (maxMA - minMA) < atr * 0.5;
+}
+
+double GetFactor(double distanceMA, double atr, ATR_TYPE atrMinimum) {
+   double minAtr = (double)atrMinimum / 10.0;
+   double maxAtr = (double)ATR_5 / 10.0;
+
+   // Percorre do maior para o menor
+   double counter = 1;
+   for(double i = maxAtr; i >= minAtr; i -= 1.0) {
+      counter += 0.1;
+      if(distanceMA > atr * i)   {
+         if (i == minAtr) {
+            return 1;
+         } else {
+            return VOLUME_TIMEFRAME_MULTIPLIER ? counter : 1;
+         }
+      }
+   }
+
+   return 0;
+}
+
+double GetAverageValue(double& indicator[], int qtdItems) {
+   double val = 0;
+   if (ArraySize(indicator) < qtdItems) {
+      return 0;
+   }
+   
+   for (int i = 0; i < qtdItems; i++) {
+      val += indicator[i];
+   }
+   
+   return val / qtdItems;
+}
+
+bool IsNewDay() {
+   static datetime last_day = 0;
+   datetime current_day = iTime(_Symbol, PERIOD_D1, 0);
+
+   if(last_day != current_day) {
+      last_day = current_day;
+      return true;
+   }
+   return false;
+}
+
+string transformarCandleTime() {
+   int remainingSeconds = calcularCandleTime(_Period);
+   int minutes = remainingSeconds / 60;
+   int seconds = remainingSeconds % 60;
+
+   return StringFormat("%02d:%02d", minutes, seconds);
+}
+
+bool VerificarTimeframeAnterior(TypeNegotiation type, ENUM_TIMEFRAMES tf) {
+   double openAtual  = iOpen(_Symbol, tf, 0);
+   double closeAtual = iClose(_Symbol, tf, 0);
+   
+   if (type == BUY && openAtual < closeAtual){
+      return true;
+   }
+   
+   if (type == SELL && openAtual > closeAtual){
+      return true;
+   }
+   
+   return false;
+}
+
+int calcularCandleTime(ENUM_TIMEFRAMES tf) {
+   datetime candleOpenTime = iTime(_Symbol, tf, 0);
+   int periodSeconds = PeriodSeconds(tf);
+   datetime candleCloseTime = candleOpenTime + periodSeconds;
+
+   int remainingSeconds = (int)(candleCloseTime - TimeCurrent());
+
+   if(remainingSeconds < 0)
+      remainingSeconds = 0;
+   
+   return remainingSeconds;
+}
+
+
+bool EmPerdaDiaria(double percentLossPerDay, string log_prefix = "") {
+    if(percentLossPerDay <= 0) {
+       return false;
+    }
+    
+    double max_loss_dollars = percentLossPerDay;
+    double daily_loss = AccountInfoDouble(ACCOUNT_BALANCE) -  BALANCE;
+    if((daily_loss < 0 && daily_loss <= -max_loss_dollars)) {
+        if(log_prefix != "") {
+            Print(log_prefix, "? MAX LOSS DIÁRIO ATINGIDO! $", 
+                  DoubleToString(MathAbs(daily_loss), 2), "/", max_loss_dollars);
+        }
+        return true;  
+    }
+    
+    return false; 
+}
+
+bool IsMarketOpenNow(int minutos = 0){
+   datetime agora = TimeLocal();
+      
+   // Converte para estrutura
+   MqlDateTime tempo;
+   TimeToStruct(agora, tempo);
+
+   int hora = tempo.hour;
+   int minuto = tempo.min;
+
+      
+   if(hora >= 17 && minuto  >= 30 && hora <= 19 && minuto <= 30){   
+      return false;
+   }
+
+   return true;
+}
+
+
+bool hasPositionOpenWithMagicNumber(int position, ulong magicNumberRobot){
+   if(hasPositionOpen(position)){
+      if (IGNORE_MAGIC_NUMBER) {
+         return true;
+      }
+   
+      ulong ticket = PositionGetTicket(position);
+      PositionSelectByTicket(ticket);
+      ulong magicNumber = PositionGetInteger(POSITION_MAGIC);
+      if(magicNumber == magicNumberRobot){
+         return true;
+      }
+   }
+   
+   return false;
+   
+}
+
+bool hasPositionOpen(int position){
+    string symbol = PositionGetSymbol(position);
+    if(PositionSelect(symbol) == true) {
+      return true;       
+    }
+    
+    return false;
+}
+
+void closeBuyOrSell(int position, ulong magicNumber, TypeNegotiation tipo){
+   if(hasPositionOpenWithMagicNumber(position, magicNumber)){
+      ulong ticket = PositionGetTicket(position);
+      PositionSelectByTicket(ticket);
+      ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      TypeNegotiation tipoF = type == POSITION_TYPE_BUY ? BUY : SELL;
+      if(tipo == NONE || tipoF == tipo){
+         trade.PositionClose(ticket);
+      } 
+   }
+}
+
+void closeAllByType(TypeNegotiation tipo){
+   int total = PositionsTotal() - 1;
+   for(int position = total; position >= 0; position--)  {
+      closeBuyOrSell(position, MAGIC_NUMBER, tipo);
+   }
+}
+
+void closeAll(){
+   int total = PositionsTotal() - 1;
+   for(int position = total; position >= 0; position--)  {
+      closeBuyOrSell(position, MAGIC_NUMBER, NONE);
+   }
+}
+
+void protectPositions(double points = 0){
+   int pos = PositionsTotal() - 1;
+   for(int i = pos; i >= 0; i--)  {
+      moveStopToZeroPlusPoint(i, points);
+   }
+}
+
+void  moveStopToZeroPlusPoint(int position = 0, double points = 0){
+   double newSlPrice = 0;
+   if(hasPositionOpen(position)){ 
+      ulong ticket = PositionGetTicket(position);
+      PositionSelectByTicket(ticket);
+      ulong magicNumber = PositionGetInteger(POSITION_MAGIC);
+      if(IGNORE_MAGIC_NUMBER || MAGIC_NUMBER == magicNumber){
+         double tpPrice = PositionGetDouble(POSITION_TP);
+         double slPrice = PositionGetDouble(POSITION_SL);
+         double entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+         double currentPrice = PositionGetDouble(POSITION_PRICE_CURRENT);
+         
+         if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
+            if(slPrice < entryPrice){
+               if(currentPrice > entryPrice+(points*_Point)){
+                  trade.PositionModify(ticket, entryPrice+(points*_Point), tpPrice);
+               }
+               else{
+                  trade.PositionModify(ticket, entryPrice, tpPrice);
+               }
+            }
+         }else if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){
+            if(slPrice > entryPrice){
+               if(currentPrice < entryPrice-(points*_Point)){
+                  trade.PositionModify(ticket, entryPrice-(points*_Point), tpPrice);
+               }
+               else{
+                  trade.PositionModify(ticket, entryPrice, tpPrice);
+               }
+            }
+         }
+      }
+   }
+}
+
+TypeNegotiation PosicaoComecandoVirar(ulong ticket, TimeframeConfig &config) {
+   if(!PositionSelectByTicket(ticket))
+      return NONE;
+
+   string simbolo = PositionGetString(POSITION_SYMBOL);
+   ENUM_POSITION_TYPE tipo = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+
+   double precoEntrada = PositionGetDouble(POSITION_PRICE_OPEN);
+   double precoAtual   = PositionGetDouble(POSITION_PRICE_CURRENT);
+   double lucro        = PositionGetDouble(POSITION_PROFIT);
+
+   bool estavaEmLucro = (lucro > 0);
+
+   if(!estavaEmLucro)
+      return NONE;
+
+
+   bool tendenciaAnteriorAlta =
+      config.movingAverage[2] > config.movingAverage21[2] &&
+      config.movingAverage21[2] > config.movingAverage50[2];
+
+   bool tendenciaAnteriorBaixa =
+      config.movingAverage[2] < config.movingAverage21[2] &&
+      config.movingAverage21[2] < config.movingAverage50[2];
+
+
+   // =========================================================
+   // 5. Detectar perda da tendência
+   // =========================================================
+
+   bool perdeuForcaAlta =
+      config.movingAverage[1] < config.movingAverage[2] &&
+      config.movingAverage21[1] <= config.movingAverage21[2];
+
+   bool perdeuForcaBaixa =
+      config.movingAverage[1] > config.movingAverage[2] &&
+      config.movingAverage21[1] >= config.movingAverage21[2];
+
+
+   // =========================================================
+   // 6. Candle contrário
+   // =========================================================
+
+   bool candleContrario = false;
+
+   if(tipo == POSITION_TYPE_BUY)
+   {
+      // Candle fechando para baixo
+      candleContrario =
+         config.candles[1].close < config.candles[1].open;
+   }
+   else if(tipo == POSITION_TYPE_SELL)
+   {
+      // Candle fechando para cima
+      candleContrario =
+         config.candles[1].close > config.candles[1].open;
+   }
+
+
+   // =========================================================
+   // 7. Preço começando a cruzar MA9
+   // =========================================================
+
+   bool cruzouMA9 = false;
+
+   if(tipo == POSITION_TYPE_BUY)
+   {
+      cruzouMA9 =
+         config.candles[2].close > config.movingAverage[2] &&
+         config.candles[1].close < config.movingAverage[1];
+   }
+   else if(tipo == POSITION_TYPE_SELL)
+   {
+      cruzouMA9 =
+         config.candles[2].close < config.movingAverage[2] &&
+         config.candles[1].close > config.movingAverage[1];
+   }
+
+
+   // =========================================================
+   // 8. Confirmação
+   // =========================================================
+
+   if(tipo == POSITION_TYPE_BUY)
+   {
+      if(tendenciaAnteriorAlta &&
+         candleContrario &&
+         (perdeuForcaAlta || cruzouMA9))
+      {
+         return BUY;
+      }
+   }
+
+   if(tipo == POSITION_TYPE_SELL)
+   {
+      if(tendenciaAnteriorBaixa &&
+         candleContrario &&
+         (perdeuForcaBaixa || cruzouMA9))
+      {
+         return SELL;
+      }
+   }
+
+   return NONE;
+}
+
+//+------------------------------------------------------------------+
+//| Move o Stop Loss por pontos                                      |
+//| pontos = distância em pontos do preço atual                      |
+//+------------------------------------------------------------------+
+void MoveStopPorPontos() {
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   int totalPeriodos = 0, totalPeriodosMartingalle = 0, countLoss = 0;
+   int total = PositionsTotal();
+   double profitLoss = 0, profitWins = 0;
+   bool positionsInLoss[];
+   bool multRobotExecutado = false;
+   int counterBuy = 0, counterSell = 0;
+   double profitCounter = 0;
+   MqlRates candles[];
+   
+   ArrayResize(positionsInLoss, total);
+   for(int i = 0; i < total; i++) {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0)
+         continue;
+
+      if(!PositionSelectByTicket(ticket))
+         continue;
+
+      string symbol = PositionGetString(POSITION_SYMBOL);
+      if(symbol != _Symbol)
+         continue;
+
+      ulong magic = (ulong)PositionGetInteger(POSITION_MAGIC);
+      if (magic <= 0) {
+         magic = MAGIC_NUMBER;
+      }
+      
+      if(magic != MAGIC_NUMBER)
+         continue;
+
+      long type        = PositionGetInteger(POSITION_TYPE);
+      double slAtual   = PositionGetDouble(POSITION_SL);
+      double tpAtual   = PositionGetDouble(POSITION_TP);
+      double entry     = PositionGetDouble(POSITION_PRICE_OPEN);
+      double currentPrice = PositionGetDouble(POSITION_PRICE_CURRENT);
+      double profit = PositionGetDouble(POSITION_PROFIT);
+      double volume = PositionGetDouble(POSITION_VOLUME);
+      string comment = PositionGetString(POSITION_COMMENT);
+      double novoSL;
+      
+      double percentualMoveStop = MOVE_STOP;
+      double pontosTP = CalcularPontos(entry, tpAtual);
+      
+      if (tpAtual <= 0 || slAtual <= 0) {
+         double points = ValorParaPontos(ticket, LOSS_PER_DAY);
+         tpAtual = tpAtual <= 0 ? CalcularPreco(currentPrice, (type == POSITION_TYPE_BUY ? points : -points)) : tpAtual;
+         slAtual = slAtual <= 0 ? CalcularPreco(currentPrice, (type == POSITION_TYPE_BUY ? -points : points)) : slAtual; 
+         AjustarStopTake(type == POSITION_TYPE_BUY ? BUY : SELL, slAtual, tpAtual);
+         trade.PositionModify(ticket, slAtual, tpAtual);
+      }
+      
+      TimeframeConfig config = getTfByComment(comment);
+      if (profit > 0) {
+         if (MOVE_PROTECTION_POINTS == percentualMoveStop) {
+            if (!config.invalid) {
+               double tamanhoMedio = CalcularTamanhoMedioCandle(config, 3);
+               //double ultCandle = type == POSITION_TYPE_BUY ? config.candles[1].low : config.candles[1].high;
+               //double tamanhoMedio =  CalcularPontos(ultCandle, currentPrice);
+               percentualMoveStop = (tamanhoMedio * 100 / pontosTP);
+            }
+         }
+         
+         double pontosMove = pontosTP  * percentualMoveStop / 100;
+         double pontosSL = CalcularPontos(slAtual, currentPrice);
+         double pontosEntrada = CalcularPontos(entry, currentPrice);
+         double pontosProtecao = pontosMove * percentualMoveStop / 100;
+         double percentProtenction = 0.3;
+         double proportion = pontosMove * (1 + percentProtenction);
+         if(type == POSITION_TYPE_BUY && percentualMoveStop > 0) {
+            if (entry > slAtual || slAtual == 0) {
+               if (pontosEntrada > proportion) {
+                  novoSL = NormalizeDouble(entry + (pontosProtecao * point),  _Digits);
+                  AjustarStopTake(BUY, novoSL, tpAtual);
+                  if(trade.PositionModify(ticket, novoSL, tpAtual))
+                     Print("Stop movido - Protecao - ", entry, " - BUY");
+               } 
+            } else {
+               if (pontosSL > proportion) {
+                  novoSL = NormalizeDouble(slAtual + (pontosProtecao  * point),  _Digits);
+                  AjustarStopTake(BUY, novoSL, tpAtual);
+                  if(trade.PositionModify(ticket, novoSL, tpAtual))
+                     Print("Stop movido - ", novoSL, " - BUY");
+               }
+            }
+         }
+   
+         if(type == POSITION_TYPE_SELL && percentualMoveStop > 0) {
+            if (entry < slAtual || slAtual == 0) {
+               if (pontosEntrada > proportion) {
+                  novoSL = NormalizeDouble(entry - (pontosProtecao * point),  _Digits);
+                  AjustarStopTake(SELL, novoSL, tpAtual);
+                  if(trade.PositionModify(ticket, novoSL, tpAtual))
+                     Print("Stop movido - Protecao - ", entry, " - SELL");
+               } 
+            } else {
+               if (pontosSL > proportion) {
+                  novoSL = NormalizeDouble(slAtual - (pontosProtecao   * point),  _Digits);
+                  AjustarStopTake(SELL, novoSL, tpAtual);
+                  if(trade.PositionModify(ticket, novoSL, tpAtual))
+                     Print("Stop movido - ", novoSL, " - SELL");
+               }
+            }
+         }
+      }
+   
+      /*
+      profitCounter += profit;
+      if (!config.invalid && config.getAnterior().anterior >= 0) {
+         if (PosicaoComecandoVirar(ticket, config.getAnterior()) == BUY) {
+            counterBuy++;
+         } else if (PosicaoComecandoVirar(ticket, config.getAnterior()) == SELL){
+            counterSell++;
+         }
+      }*/
+   }
+   
+   /*
+   if (profitCounter < 0 && MathAbs(profitCounter) > LOSS_PER_DAY * 0.01) {
+      if (counterBuy > 0 && counterSell > 0) {
+         printf("tete");
+      } else if (counterBuy > 1 && counterBuy >= (total-counterBuy)){
+         closeAllByType(BUY);
+         printf("tete");
+      } else if (counterSell > 1 && counterSell >= (total-counterSell) ){
+         closeAllByType(SELL);
+         printf("tete");
+      }
+   }*/
+}
+
+bool SimboloVaiFechar(string simbolo, int minutes) {
+   datetime agora = TimeTradeServer();
+   datetime futuro = agora + (minutes * 60);
+   
+   MqlDateTime dt;
+   TimeToStruct(agora, dt);
+   
+   if((dt.hour >= 17 && dt.min >= 20) && (dt.hour <= 19 && dt.min <= 40)) {
+      return true;
+   }
+
+   ENUM_DAY_OF_WEEK dia = (ENUM_DAY_OF_WEEK)dt.day_of_week;
+
+   datetime inicio, fim;
+   int sessao = 0;
+   while(SymbolInfoSessionTrade(simbolo, dia, sessao, inicio, fim)) {
+      sessao++;
+      MqlDateTime fimSessao;
+      TimeToStruct(fim, fimSessao);
+      fimSessao.year = dt.year;
+      fimSessao.mon  = dt.mon;
+      fimSessao.day  = dt.day;
+      datetime fechamento = StructToTime(fimSessao);
+      if(futuro > fechamento) {
+         return true;
+      }
+   }
+
+   return false;
+}
+
+bool ExisteProximaNoticia(string simbolo, int minutos){
+   datetime agora = TimeTradeServer();
+   datetime limite = agora + (minutos * 60);
+   int minutesCalc = MinutosEntreDatas(NOVA_NOTICIA_AGUARDANDO, agora);
+   
+   if (minutesCalc <= minutos) {
+      printf("Noticia em andamento");
+      return true;
+   }
+
+   string moedaBase   = SymbolInfoString(simbolo, SYMBOL_CURRENCY_BASE);
+   string moedaProfit = SymbolInfoString(simbolo, SYMBOL_CURRENCY_PROFIT);
+
+   if(ExisteNoticiaMoeda(moedaBase, agora, limite)) {
+      printf("Tem Noticia");
+      NOVA_NOTICIA_AGUARDANDO = agora;
+      return true;
+   }
+
+   if(moedaProfit != "" && moedaProfit != moedaBase) {
+      if(ExisteNoticiaMoeda(moedaProfit, agora, limite)) {
+         printf("Tem Noticia");
+         NOVA_NOTICIA_AGUARDANDO = agora;
+         return true;
+      }
+   }
+
+   return false;
+}
+
+bool ExisteNoticiaMoeda(string moeda, datetime inicio, datetime fim) {
+   MqlCalendarValue valores[];
+
+   int total = CalendarValueHistory( valores, inicio,  fim );
+   if(total <= 0)
+      return false;
+
+   for(int i = 0; i < total; i++){
+      MqlCalendarEvent evento;
+
+      if(!CalendarEventById(valores[i].event_id, evento))
+         continue;
+
+      MqlCalendarCountry pais;
+
+      if(!CalendarCountryById(evento.country_id, pais))
+         continue;
+
+      // Verifica se a notícia pertence à moeda
+      if(pais.currency != moeda)
+         continue;
+
+      // Somente alto impacto
+      if(evento.importance != CALENDAR_IMPORTANCE_HIGH)
+         continue;
+
+      Print(
+         "Notícia encontrada: ",
+         evento.name,
+         " | Moeda: ", pais.currency,
+         " | Horário: ",
+         TimeToString(valores[i].time, TIME_DATE | TIME_MINUTES)
+      );
+
+      return true;
+   }
+
+   return false;
+}
+
+bool NovoCandle(ENUM_TIMEFRAMES timeframe){
+   static datetime ultimoCandle = 0;
+   datetime candleAtual = iTime(_Symbol, timeframe, 0);
+   if(candleAtual == 0)
+      return false;
+
+   if(candleAtual != ultimoCandle){
+      ultimoCandle = candleAtual;
+      return true;
+   }
+
+   return false;
+}
+
+bool TemPavioMaiorQueCorpo(MqlRates &candle){
+   double corpo = MathAbs(candle.close - candle.open);
+   double pavioSuperior = candle.high - MathMax(candle.open, candle.close);
+   double pavioInferior =  MathMin(candle.open, candle.close) - candle.low;
+
+   if(pavioSuperior > 0 && pavioSuperior > corpo)
+      return true;
+
+   if(pavioInferior > 0 && pavioInferior > corpo)
+      return true;
+
+   return false;
+}
+
+//+------------------------------------------------------------------+
+double CalcularPreco(double price, double points) {
+   return NormalizeDouble(price + points * _Point, _Digits);
+}
+
+double ValorParaPontos(ulong ticket, double valorReais) {
+   if(!PositionSelectByTicket(ticket))
+      return 0;
+
+   string simbolo = PositionGetString(POSITION_SYMBOL);
+   double volume = PositionGetDouble(POSITION_VOLUME);
+
+   double tickSize = SymbolInfoDouble(simbolo, SYMBOL_TRADE_TICK_SIZE);
+   double tickValue = SymbolInfoDouble(simbolo, SYMBOL_TRADE_TICK_VALUE);
+   double point = SymbolInfoDouble(simbolo, SYMBOL_POINT);
+
+   if(tickSize <= 0 || tickValue <= 0 || point <= 0 || volume <= 0)
+      return 0;
+
+   // Valor de 1 ponto para o volume da posição
+   double valorPorPonto = (tickValue / tickSize) * point * volume;
+
+   if(valorPorPonto <= 0)
+      return 0;
+
+   return valorReais / valorPorPonto;
+}
+
+bool DeveEvitarOperacao(TimeframeConfig &config) {
+   string simbolo = _Symbol;
+   double preco = config.preco;
+
+   double point = SymbolInfoDouble(simbolo, SYMBOL_POINT);
+   int digits = (int)SymbolInfoInteger(simbolo, SYMBOL_DIGITS);
+
+   // Identifica o tamanho de 1 pip
+   double pip = point;
+
+   if(digits == 3 || digits == 5)
+      pip = point * 10.0;
+
+   // Preço convertido para pips
+   double precoPips = preco / pip;
+
+   // Múltiplo de 5 pips mais próximo
+   double nivel = MathRound(precoPips / 5.0) * 5.0;
+
+   // Distância até o nível
+   double distanciaPips = MathAbs(precoPips - nivel);
+
+   // Não operar se estiver até 2 pips do nível
+   return distanciaPips <= 2.0;
+}
+
+bool TendenciaTerminou(TimeframeConfig &config, TypeNegotiation tipo) {
+   if (DISABLE_END_TENDENCY) {
+      return false;
+   }
+   
+   bool perdeuEstrutura = false;
+   bool cciExtrapolado = false;
+   bool cruzouMedia = false;
+   
+   double aTamanho = CalcularPontos(config.candles[0].high, config.candles[0].low);
+   double lTamanho = CalcularPontos(config.candles[1].high, config.candles[1].low);
+   double sTamanho = CalcularPontos(config.candles[2].high, config.candles[2].low);
+   if (aTamanho > lTamanho * 5 && aTamanho > sTamanho * 5) {
+         cruzouMedia = false;
+      
+   }
+   
+   if(tipo == BUY) {
+      if(config.candles[2].close > config.movingAverage[2] &&
+         config.candles[1].close < config.movingAverage[1]) {
+         cruzouMedia = true;
+      }
+      
+      if (config.cci[0] > 200) {
+         cciExtrapolado = true;
+      }
+   
+      // Último fundo ficou abaixo do fundo anterior
+      if(config.candles[1].low < config.candles[3].low){
+         perdeuEstrutura = true;
+      }
+   } else {
+      if(config.candles[2].close < config.movingAverage[2] &&
+         config.candles[1].close > config.movingAverage[1])  {
+         cruzouMedia = true;
+      }
+      if (config.cci[0] < -200) {
+         cciExtrapolado = true;
+      }
+      // Último topo ficou acima do topo anterior
+      if(config.candles[1].high > config.candles[3].high){
+         perdeuEstrutura = true;
+      }
+   }
+
+   // ---------------------------------------------------------
+   // 3. CANDLE FORTE CONTRA A TENDÊNCIA
+   // ---------------------------------------------------------
+
+   double corpo = MathAbs(config.candles[1].close - config.candles[1].open);
+   double range = config.candles[1].high - config.candles[1].low;
+
+   bool candleContrario = false;
+
+   if(range > 0) {
+      double percentualCorpo = corpo / range;
+
+      if(tipo == BUY) {
+         if(config.candles[1].close < config.candles[1].open &&
+            percentualCorpo >= 0.60)
+         {
+            candleContrario = true;
+         }
+      } else  {
+         if(config.candles[1].close > config.candles[1].open &&
+            percentualCorpo >= 0.60)
+         {
+            candleContrario = true;
+         }
+      }
+   }
+
+   // ---------------------------------------------------------
+   // 4. ADX PERDENDO FORÇA
+   // ---------------------------------------------------------
+
+   bool adxPerdendoForca = false;
+   // ADX caiu nos últimos candles
+   if(config.adx[1] < config.adx[2] && config.adx[2] < config.adx[3]) {
+      adxPerdendoForca = true;
+   }
+
+   // ---------------------------------------------------------
+   // CONTAGEM DOS SINAIS
+   // ---------------------------------------------------------
+
+   int sinais = 0;
+
+   if(perdeuEstrutura)
+      sinais++;
+
+   if(cruzouMedia)
+      sinais++;
+
+   if(candleContrario)
+      sinais++;
+
+   if(adxPerdendoForca)
+      sinais++;
+
+   if(cciExtrapolado)
+      sinais++;
+   // ---------------------------------------------------------
+   // 2 OU MAIS SINAIS = TENDÊNCIA POSSIVELMENTE TERMINOU
+   // ---------------------------------------------------------
+
+   return sinais >= 3;
+}
+
+void AjustarStopTake(TypeNegotiation tipo, double &stop, double &take){
+   if(tipo == BUY) {
+      if(stop > take)
+      {
+         double temp = stop;
+         stop = take;
+         take = temp;
+      }
+   }
+   else if(tipo == SELL) {
+      if(stop < take) {
+         double temp = stop;
+         stop = take;
+         take = temp;
+      }
+   }
+}
+
+double ObterExtremo(TimeframeConfig &config,  int n, bool buscarHigh ) {
+   string simbolo = _Symbol;
+   ENUM_TIMEFRAMES timeframe = config.tf;
+   
+   if(n <= 0)
+      return 0;
+
+   double extremo;
+
+   if(buscarHigh)
+      extremo = config.candles[0].high;
+   else
+      extremo = config.candles[0].low;
+
+   for(int i = 1; i < n; i++) {
+      if(buscarHigh)
+      {
+         if(config.candles[i].high > extremo)
+            extremo = config.candles[i].high;
+      }
+      else
+      {
+         if(config.candles[i].low < extremo)
+            extremo = config.candles[i].low;
+      }
+   }
+
+   return extremo;
+}
+
+bool SinalScalp(TimeframeConfig &config, TypeNegotiation tipo ){
+   string simbolo = _Symbol;
+   ENUM_TIMEFRAMES timeframe = config.tf;
+   // =====================================================
+
+   if(tipo == BUY) {
+      // Candle de impulso
+      double corpo1 = MathAbs(config.candles[3].close - config.candles[3].open);
+      double range1 = config.candles[3].high - config.candles[3].low;
+
+      if(range1 <= 0)
+         return false;
+
+      bool impulso =
+         config.candles[3].close > config.candles[3].open &&
+         corpo1 / range1 >= 0.60;
+
+      // Candle seguinte ainda mostrando força
+      bool continuidade =
+         config.candles[2].close > config.candles[2].open &&
+         config.candles[2].close > config.candles[3].close;
+
+      // Pullback
+      bool pullback =
+         config.candles[1].close < config.candles[1].open &&
+         config.candles[1].low > config.candles[3].low;
+
+      // Candle de retomada
+      bool retomada =
+         config.candles[0].close > config.candles[0].open &&
+         config.candles[0].close > config.candles[1].high;
+
+      return impulso &&
+             continuidade &&
+             pullback &&
+             retomada;
+   }
+
+   // =====================================================
+   // VENDA
+   // =====================================================
+
+   if(tipo == SELL)
+   {
+      double corpo1 = MathAbs(config.candles[3].close - config.candles[3].open);
+      double range1 = config.candles[3].high - config.candles[3].low;
+
+      if(range1 <= 0)
+         return false;
+
+      bool impulso =
+         config.candles[3].close < config.candles[3].open &&
+         corpo1 / range1 >= 0.60;
+
+      bool continuidade =
+         config.candles[2].close < config.candles[2].open &&
+         config.candles[2].close < config.candles[3].close;
+
+      bool pullback =
+         config.candles[1].close > config.candles[1].open &&
+         config.candles[1].high < config.candles[3].high;
+
+      bool retomada =
+         config.candles[0].close < config.candles[0].open &&
+         config.candles[0].close < config.candles[1].low;
+
+      return impulso &&
+             continuidade &&
+             pullback &&
+             retomada;
+   }
+
+   return false;
+}
+enum TipoSinal
+{
+   SIGNAL_NONE,
+   SIGNAL_BUY,
+   SIGNAL_SELL
+};
+
+TypeNegotiation AnalisarCandles(TimeframeConfig &config, int quantidadeCandles) {
+   if(quantidadeCandles <= 0)
+      return NONE;
+
+   int candlesBuy = 0;
+   int candlesSell = 0;
+
+   for(int i = 0; i < quantidadeCandles; i++)  {
+      double corpo = MathAbs(config.candles[i].close - config.candles[i].open);
+
+      double pavioSuperior = config.candles[i].high -
+                             MathMax(config.candles[i].open, config.candles[i].close);
+
+      double pavioInferior = MathMin(config.candles[i].open, config.candles[i].close) -
+                             config.candles[i].low;
+
+      // O corpo precisa ser maior que os dois pavios
+      if(corpo <= pavioSuperior || corpo <= pavioInferior)
+         continue;
+
+      // Candle de alta
+      if(config.candles[i].close > config.candles[i].open) {
+         candlesBuy++;
+      }
+      // Candle de baixa
+      else if(config.candles[i].close < config.candles[i].open){
+         candlesSell++;
+      }
+   }
+
+   if(candlesBuy > candlesSell)
+      return BUY;
+
+   if(candlesSell > candlesBuy)
+      return SELL;
+
+   return NONE;
+}
+
+TypeNegotiation DetectarPressaoVolume(TimeframeConfig &config) {
+   string simbolo = _Symbol;
+   ENUM_TIMEFRAMES timeframe = config.tf;
+   int quantidadeCandles = QTD_CANDLES;
+   double fatorVolume = 1.5;
+   
+   if (config.anterior < 0 ) {
+      return NONE;
+   }
+
+   // Volume médio dos candles anteriores
+   double volumeMedio = 0;
+   double volumeRealMedio = 0;
+   for(int i = 1; i < quantidadeCandles; i++) {
+      volumeMedio += (double)config.candles[i].tick_volume;
+      volumeRealMedio += (double)config.volumes[i];
+   }
+   
+   volumeMedio /= quantidadeCandles;
+   volumeRealMedio /= quantidadeCandles;
+
+   // Candle mais recente fechado
+   MqlRates candle = config.candles[0];
+
+   // Verifica se houve aumento significativo de volume
+   if(candle.tick_volume < volumeMedio * fatorVolume && candle.tick_volume < volumeRealMedio * fatorVolume)
+      return NONE;
+
+   // Candle comprador
+   if(candle.close > candle.open)
+      return BUY;
+
+   // Candle vendedor
+   if(candle.close < candle.open)
+      return SELL;
+
+   return NONE;
+}
+
+TimeFrameCandle countPositionsInProfit(TypeNegotiation typeN) {
+   TimeFrameCandle bordas;
+   bordas.counter = 0;
+   for(int i = 0; i < PositionsTotal(); i++) {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0)
+         continue;
+
+      if(!PositionSelectByTicket(ticket))
+         continue;
+
+      string symbol = PositionGetString(POSITION_SYMBOL);
+      if(symbol != _Symbol)
+         continue;
+
+      ulong magic = (ulong)PositionGetInteger(POSITION_MAGIC);
+      if (magic <= 0) {
+         magic = MAGIC_NUMBER;
+      }
+      
+      if(magic != MAGIC_NUMBER)
+         continue;
+
+      long type = PositionGetInteger(POSITION_TYPE);
+      double profit = PositionGetDouble(POSITION_PROFIT);
+      double current = PositionGetDouble(POSITION_PRICE_CURRENT);
+      double open = PositionGetDouble(POSITION_PRICE_OPEN);
+      double points = CalcularPontos(current, open);
+      double stop = PositionGetDouble(POSITION_SL);
+      bordas.take = PositionGetDouble(POSITION_TP);
+      bordas.type = NONE;
+      
+      if (profit > 0) {
+         if (type == POSITION_TYPE_BUY && typeN == BUY) {
+            bordas.stop = CalcularPreco(stop, points);
+            bordas.type = BUY;
+            bordas.counter += (int)profit;
+         } else if (type == POSITION_TYPE_SELL && typeN == SELL) {
+            bordas.stop = CalcularPreco(stop, -points);
+            bordas.type = SELL;
+            bordas.counter += (int)profit;
+         }
+      }
+   }
+   
+   return bordas;
+}
+
+int MinutosEntreDatas(datetime data1, datetime data2) {
+   return (int)MathAbs((double)(data2 - data1) / 60.0);
+}
+
+
+void generateButtons(){
+   createButton("btnProtectAll", 50, 340, 300, 30, CORNER_LEFT_LOWER, 12, "Arial", "Proteger Negociações", clrWhite, clrGreen, clrGreen, false);
+   createButton("btnCloseAll", 50, 380, 300, 30, CORNER_LEFT_LOWER, 12, "Arial", "Fechar Negociacoes", clrWhite, clrBlueViolet, clrBlueViolet, false);
+   CriarCampo("InputSuportes", 50, 175, 90, 30);  
+   createButton("btnAddSupport", 150, 300, 200, 30, CORNER_LEFT_LOWER, 12, "Arial", "Add Maximos", clrWhite, clrBrown, clrBrown, false);
+}
+
+void createButton(string nameLine, int xx, int yy, int largura, int altura, int canto, int tamanho, string fonte, string text, long corTexto, long corFundo, long corBorda, bool oculto){
+   ObjectCreate(ChartID(),nameLine,OBJ_BUTTON,0,0,0);
+   ObjectSetInteger(0,nameLine,OBJPROP_XDISTANCE,xx);
+   ObjectSetInteger(0,nameLine,OBJPROP_YDISTANCE, yy);
+   ObjectSetInteger(0,nameLine,OBJPROP_XSIZE, largura);
+   ObjectSetInteger(0,nameLine,OBJPROP_YSIZE, altura);
+   ObjectSetInteger(0,nameLine,OBJPROP_CORNER, canto);
+   ObjectSetInteger(0,nameLine,OBJPROP_FONTSIZE, tamanho);
+   ObjectSetString(0,nameLine,OBJPROP_FONT, fonte);
+   ObjectSetString(0,nameLine,OBJPROP_TEXT, text);
+   ObjectSetInteger(0,nameLine,OBJPROP_COLOR, corTexto);
+   ObjectSetInteger(0,nameLine,OBJPROP_BGCOLOR, corFundo);
+   ObjectSetInteger(0,nameLine,OBJPROP_BORDER_COLOR, corBorda);
+}
+
+Pattern createPattern(TimeframeConfig &config) {
+   Pattern pattern;
+   pattern.actualCandle = config.candles[0];
+   pattern.lastCandle = config.candles[1];
+   pattern.secLastCandle = config.candles[2];
+   pattern.thirdLastCandle = config.candles[3];
+   pattern.FourthLastCandle = config.candles[4];
+   
+   pattern.lastCandleOrientation = IsBearish(config.candles[0]) ? SELL : (IsBullish(config.candles[0]) ? BUY : NONE);
+   pattern.actualCandleOrientation = IsBearish(config.candles[1]) ? SELL : (IsBullish(config.candles[1]) ? BUY : NONE);
+   pattern.secLastCandleOrientation = IsBearish(config.candles[2]) ? SELL : (IsBullish(config.candles[2]) ? BUY : NONE);
+   pattern.thirdLastCandleOrientation = IsBearish(config.candles[3]) ? SELL : (IsBullish(config.candles[3]) ? BUY : NONE);
+   pattern.anyNone = (pattern.lastCandleOrientation == NONE || pattern.secLastCandleOrientation == NONE || pattern.thirdLastCandleOrientation == NONE);
+   
+   return pattern;
+}
+
+double getTake(MqlRates &actualCandle, double stop) {
+   double tpPoints = CalcularPontos(actualCandle.close, stop) * (IsBearish(actualCandle) ? -1 : 1);
+   return CalcularPreco(actualCandle.close, tpPoints);
+}
+
+double getMaxStop(MqlRates &candle1, MqlRates &candle2) {
+   double stop = 0;
+   if(IsBullish(candle1)) {
+      stop = MathMax(candle1.low, candle2.low);
+   }else if(IsBearish(candle1)) {
+      stop = MathMax(candle1.high, candle2.high);
+   }
+   
+   return stop;
+}
+
+TimeFrameCandle VerificarSePatternEncontrado(Pattern &pattern) {
+   TimeFrameCandle resultado;
+   resultado.updated = false;
+   
+   for(int i = 0; i < 4; i++) {
+      resultado = ExecutePattern(i, pattern);
+      if (resultado.updated) {
+         break;      
+      }
+   }
+   
+   return resultado;
+}
+
+TimeFrameCandle ExecutePattern(int patternType, Pattern &pattern){
+   switch(patternType) {
+     /*
+       */
+      case 0:
+         return isHammerReversion(pattern);
+
+      case 1:
+         return isEngolfoTendency(pattern);
+
+      case 2:
+         return isEngolfoTendency2(pattern);
+
+      case 3:
+         return isPavioPattern(pattern);
+         
+      default:
+         return isPavioPattern(pattern);
+   }
+
+   TimeFrameCandle result;
+   result.updated = false;
+   return result;
+}
+
+TimeFrameCandle isHammerReversion(Pattern &pattern) {
+   TimeFrameCandle tf;
+   tf.updated = false;
+   if (pattern.anyNone) {
+      return tf;   
+   }
+   
+   if (pattern.secLastCandleOrientation != pattern.lastCandleOrientation 
+      && pattern.thirdLastCandleOrientation != pattern.lastCandleOrientation 
+      && pattern.actualCandleOrientation == pattern.lastCandleOrientation) {
+      double body = getBodyOrWick(pattern.lastCandle, true);
+      double wick = getBodyOrWick(pattern.lastCandle, false);
+      double bodyLast = getBodyOrWick(pattern.secLastCandle, true);
+      double wickLast = getBodyOrWick(pattern.secLastCandle, false);
+      double bodyTLast = getBodyOrWick(pattern.thirdLastCandle, true);
+      double wickTLast = getBodyOrWick(pattern.thirdLastCandle, false);
+      
+      double take = pattern.secLastCandle.open;
+      double stop = 0;
+      if (pattern.actualCandleOrientation == BUY) {
+         stop = pattern.lastCandle.low;
+      }else if (pattern.actualCandleOrientation == SELL) {
+         stop = pattern.lastCandle.high;
+      }
+      
+      tf.type = pattern.lastCandleOrientation;
+      
+      tf.take = CalcularPontos(pattern.actualCandle.close, take);
+      tf.stop = CalcularPontos(pattern.actualCandle.close, stop);
+      tf.updated = true;//wick > body;//&& bodyLast > wickLast  
+   }
+   
+   return tf;   
+}
+
+TimeFrameCandle isEngolfoTendency(Pattern &pattern) {
+   TimeFrameCandle tf;
+   tf.updated = false;
+   if (pattern.anyNone) {
+      return tf;   
+   }
+   
+   if (pattern.thirdLastCandleOrientation != pattern.secLastCandleOrientation 
+      && pattern.lastCandleOrientation == pattern.secLastCandleOrientation 
+      && pattern.actualCandleOrientation == pattern.secLastCandleOrientation) {
+      tf.type = pattern.actualCandleOrientation;
+      
+      if (pattern.actualCandleOrientation == BUY && pattern.actualCandle.close > pattern.secLastCandle.open) {
+         tf.stop = CalcularPontos(pattern.actualCandle.close, pattern.lastCandle.low);
+         tf.take = tf.stop;
+         tf.updated = tf.take >= tf.stop; 
+      } else if (pattern.actualCandleOrientation == SELL && pattern.actualCandle.close < pattern.secLastCandle.open) {
+         tf.stop = CalcularPontos(pattern.actualCandle.close, pattern.lastCandle.high);
+         tf.take = tf.stop;
+         tf.updated = true;//tf.take >= tf.stop; 
+      }
+   }
+   
+   return tf;   
+}
+
+TimeFrameCandle isEngolfoTendency2(Pattern &pattern) {
+   TimeFrameCandle tf;
+   tf.updated = false;
+   if (pattern.anyNone) {
+      return tf;   
+   }
+   
+   if (pattern.thirdLastCandleOrientation == pattern.secLastCandleOrientation 
+      && pattern.lastCandleOrientation != pattern.secLastCandleOrientation 
+      && pattern.actualCandleOrientation == pattern.secLastCandleOrientation) {
+      tf.type = pattern.actualCandleOrientation;
+      
+      if (pattern.actualCandleOrientation == BUY && pattern.actualCandle.close > pattern.lastCandle.open) {
+         tf.stop = CalcularPontos(pattern.actualCandle.close, pattern.lastCandle.low);
+         tf.take = tf.stop;
+         tf.updated = tf.take >= tf.stop; 
+      } else if (pattern.actualCandleOrientation == SELL && pattern.actualCandle.close < pattern.lastCandle.open) {
+         tf.stop = CalcularPontos(pattern.actualCandle.close, pattern.lastCandle.high);
+         tf.take = tf.stop;
+         tf.updated = true;//tf.take >= tf.stop; 
+      }
+   }
+   
+   return tf;   
+}
+
+TimeFrameCandle isPavioPattern(Pattern &pattern) {
+   TimeFrameCandle tf;
+   tf.updated = false;
+   if (pattern.anyNone) {
+      return tf;   
+   }
+   
+   double secBody = getBodyOrWick(pattern.secLastCandle, true);
+   double tBody = getBodyOrWick(pattern.thirdLastCandle, true);
+   double fBody = getBodyOrWick(pattern.FourthLastCandle, true);
+   double lBody = getBodyOrWick(pattern.lastCandle, true);
+   if (pattern.secLastCandleOrientation != pattern.lastCandleOrientation 
+      && pattern.lastCandleOrientation == pattern.actualCandleOrientation 
+      && secBody > tBody && secBody > fBody && secBody > lBody  && lBody > secBody * 0.4) {
+      double spread = pattern.actualCandle.spread;
+      if (tf.type == BUY) {
+         tf.stop = CalcularPontos(pattern.actualCandle.close, pattern.secLastCandle.low);
+         tf.take = CalcularPontos(pattern.actualCandle.close, pattern.secLastCandle.high);
+      }
+      if (tf.type == SELL) {
+         tf.stop = CalcularPontos(pattern.actualCandle.close, pattern.secLastCandle.high);
+         tf.take = CalcularPontos(pattern.actualCandle.close, pattern.secLastCandle.low);
+      }
+      tf.type = pattern.actualCandleOrientation;
+      tf.updated =true;// tf.take - spread >= tf.stop; 
+   }
+   
+   return tf;   
+}
+
+TimeFrameCandle isPavioPattern2(Pattern &pattern) {
+   TimeFrameCandle tf;
+   tf.updated = false;
+   if (pattern.anyNone) {
+      return tf;   
+   }
+   
+   double secBody = getBodyOrWick(pattern.secLastCandle, true);
+   double secWick = getBodyOrWick(pattern.secLastCandle, false);
+   double lBody = getBodyOrWick(pattern.lastCandle, true);
+   double lWick = getBodyOrWick(pattern.lastCandle, false);
+   double aBody = getBodyOrWick(pattern.actualCandle, true);
+   double aWick = getBodyOrWick(pattern.actualCandle, false);
+   if (pattern.secLastCandleOrientation == pattern.lastCandleOrientation 
+      && pattern.lastCandleOrientation == pattern.actualCandleOrientation 
+      && secBody > secWick && lBody > lWick && aBody < aWick) {
+      tf.type = pattern.actualCandleOrientation;
+      double spread = pattern.actualCandle.spread;
+      
+      if (tf.type == BUY) {
+         tf.stop = CalcularPontos(pattern.actualCandle.close, pattern.actualCandle.low);
+         tf.take = CalcularPontos(pattern.actualCandle.close, pattern.actualCandle.high);
+      }
+      if (tf.type == SELL) {
+         tf.stop = CalcularPontos(pattern.actualCandle.close, pattern.actualCandle.high);
+         tf.take = CalcularPontos(pattern.actualCandle.close, pattern.actualCandle.low);
+      }
+      tf.updated =true;// tf.take - spread >= tf.stop && tf.take > spread * 2 && tf.stop > spread * 2; 
+   }
+   
+   return tf;   
+}
+
+double CalcularTamanhoMedioCandle(TimeframeConfig &config, int qtd) {
+   if (qtd == 0 || qtd > QTD_CANDLES) {
+      return 0;
+   }
+   
+   double total = 0;
+   for (int i = 0; i < qtd ; i++) {
+      double points = CalcularPontos(config.candles[0].high, config.candles[0].low);
+      total += points;
+   }
+   
+   return total / qtd;
+}
+
+
+void GerarOrdemNaoConfiavel(
+   double volumeConfiavel,
+   TypeNegotiation tipo,
+   double stopConfiavel,
+   double takeConfiavel,
+   DadosOrdem &ordem
+)
+{
+   // =====================================================
+   // A ordem não confiável será CONTRÁRIA
+   // =====================================================
+
+   if(tipo == BUY)
+      ordem.tipo = SELL;
+   else if(tipo == SELL)
+      ordem.tipo = BUY;
+   else
+   {
+      ordem.volume = 0;
+      ordem.stop = 0;
+      ordem.take = 0;
+      return;
+   }
+
+
+   // =====================================================
+   // Preço de entrada da ordem confiável
+   // =====================================================
+
+   double precoEntradaConfiavel;
+
+   if(tipo == BUY)
+      precoEntradaConfiavel =
+         SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   else
+      precoEntradaConfiavel =
+         SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+
+   // =====================================================
+   // Preço de entrada da ordem não confiável
+   // =====================================================
+
+   double precoEntradaNaoConfiavel;
+
+   if(ordem.tipo == BUY)
+      precoEntradaNaoConfiavel =
+         SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   else
+      precoEntradaNaoConfiavel =
+         SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+
+   // =====================================================
+   // Distâncias da ordem confiável
+   // =====================================================
+
+   double distanciaStop =
+      MathAbs(
+         precoEntradaConfiavel - stopConfiavel
+      );
+
+   double distanciaTake =
+      MathAbs(
+         takeConfiavel - precoEntradaConfiavel
+      );
+
+
+   if(distanciaStop <= 0 ||
+      distanciaTake <= 0)
+   {
+      ordem.volume = 0;
+      ordem.stop = 0;
+      ordem.take = 0;
+      return;
+   }
+
+
+   // =====================================================
+   // Distâncias da ordem não confiável
+   // =====================================================
+
+   double distanciaStopNova =
+      distanciaStop * 0.50;
+
+   double distanciaTakeNova =
+      distanciaTake * 0.50;
+
+
+   // =====================================================
+   // STOP / TAKE
+   // =====================================================
+
+   if(ordem.tipo == BUY)
+   {
+      // ================================================
+      // Ordem não confiável = BUY
+      //
+      // SL abaixo
+      // TP acima
+      // ================================================
+
+      ordem.stop =
+         precoEntradaNaoConfiavel -
+         distanciaStopNova;
+
+      ordem.take =
+         precoEntradaNaoConfiavel +
+         distanciaTakeNova;
+   }
+   else
+   {
+      // ================================================
+      // Ordem não confiável = SELL
+      //
+      // SL acima
+      // TP abaixo
+      // ================================================
+
+      ordem.stop =
+         precoEntradaNaoConfiavel +
+         distanciaStopNova;
+
+      ordem.take =
+         precoEntradaNaoConfiavel -
+         distanciaTakeNova;
+   }
+
+
+   // =====================================================
+   // Calcular risco da ordem confiável
+   // =====================================================
+
+   double riscoConfiavel = 0;
+
+   ENUM_ORDER_TYPE orderTypeConfiavel;
+
+   if(tipo == BUY)
+      orderTypeConfiavel = ORDER_TYPE_BUY;
+   else
+      orderTypeConfiavel = ORDER_TYPE_SELL;
+
+
+   if(!OrderCalcProfit(
+      orderTypeConfiavel,
+      _Symbol,
+      volumeConfiavel,
+      precoEntradaConfiavel,
+      stopConfiavel,
+      riscoConfiavel))
+   {
+      ordem.volume = 0;
+      ordem.stop = 0;
+      ordem.take = 0;
+      return;
+   }
+
+   riscoConfiavel =
+      MathAbs(riscoConfiavel);
+
+
+   // =====================================================
+   // Risco desejado da ordem não confiável
+   // =====================================================
+
+   double riscoDesejado =
+      riscoConfiavel * 0.25;
+
+
+   // =====================================================
+   // Tipo da ordem não confiável
+   // =====================================================
+
+   ENUM_ORDER_TYPE orderTypeNaoConfiavel;
+
+   if(ordem.tipo == BUY)
+      orderTypeNaoConfiavel = ORDER_TYPE_BUY;
+   else
+      orderTypeNaoConfiavel = ORDER_TYPE_SELL;
+
+
+   // =====================================================
+   // Risco de 1 lote da ordem não confiável
+   // =====================================================
+
+   double riscoPorLote = 0;
+
+   if(!OrderCalcProfit(
+      orderTypeNaoConfiavel,
+      _Symbol,
+      1.0,
+      precoEntradaNaoConfiavel,
+      ordem.stop,
+      riscoPorLote))
+   {
+      ordem.volume = 0;
+      ordem.stop = 0;
+      ordem.take = 0;
+      return;
+   }
+
+   riscoPorLote =
+      MathAbs(riscoPorLote);
+
+
+   if(riscoPorLote <= 0)
+   {
+      ordem.volume = 0;
+      ordem.stop = 0;
+      ordem.take = 0;
+      return;
+   }
+
+
+   // =====================================================
+   // Volume
+   // =====================================================
+
+   ordem.volume =
+      riscoDesejado / riscoPorLote;
+
+
+   // =====================================================
+   // Normalizar volume
+   // =====================================================
+
+   double volumeMin =
+      SymbolInfoDouble(
+         _Symbol,
+         SYMBOL_VOLUME_MIN
+      );
+
+   double volumeMax =
+      SymbolInfoDouble(
+         _Symbol,
+         SYMBOL_VOLUME_MAX
+      );
+
+   double volumeStep =
+      SymbolInfoDouble(
+         _Symbol,
+         SYMBOL_VOLUME_STEP
+      );
+
+
+   if(ordem.volume < volumeMin)
+      ordem.volume = volumeMin;
+
+   if(ordem.volume > volumeMax)
+      ordem.volume = volumeMax;
+
+
+   if(volumeStep > 0)
+   {
+      ordem.volume =
+         MathFloor(
+            ordem.volume / volumeStep
+         ) * volumeStep;
+   }
+
+
+   ordem.volume =
+      NormalizeDouble(
+         ordem.volume,
+         2
+      );
+
+
+   // =====================================================
+   // Normalizar preços
+   // =====================================================
+
+   ordem.stop =
+      NormalizeDouble(
+         ordem.stop,
+         _Digits
+      );
+
+   ordem.take =
+      NormalizeDouble(
+         ordem.take,
+         _Digits
+      );
+}
+
+// ==========================================================
+// Calcula os níveis de Fibonacci
+// ==========================================================
+TypeNegotiation CalcularFibonacci( TimeframeConfig &config, FibonacciLevels &fib ) {
+   int buyCount = 0;
+   int sellCount = 0;
+   int qtdCandles = 4;
+   for(int i = 1; i <= qtdCandles; i++) {
+      if(config.candles[1].low <= config.candles[i].low && config.candles[qtdCandles].high >= config.candles[i].high) {
+         buyCount++;
+      }else if(config.candles[1].high >= config.candles[i].high && config.candles[qtdCandles].low <= config.candles[i].low) {
+         sellCount++;
+      }
+   }
+   
+   if (buyCount > qtdCandles -1 || sellCount > qtdCandles-1) {
+      Pattern pattern = createPattern(config);
+      TimeFrameCandle resultado = isHammerReversion(pattern);
+      if (resultado.updated) {
+         TypeNegotiation sinal = sellCount > qtdCandles-1 ? SELL : BUY;
+         if (sinal == BUY) {
+            fib.fundo = config.candles[1].open;
+            fib.topo = config.candles[qtdCandles].close;
+            
+            double tamanho = CalcularPontos(fib.topo, fib.fundo);
+            fib.fib382 = fib.topo - (tamanho * 0.382);
+            fib.fib500 = fib.topo - (tamanho * 0.500);
+            fib.fib618 = fib.topo - (tamanho * 0.618);
+            fib.fib786 = fib.topo - (tamanho * 0.786);
+            return BUY;
+         } else if (sinal == SELL) {
+            fib.topo = config.candles[1].close;
+            fib.fundo = config.candles[qtdCandles].open;
+            
+            double tamanho = CalcularPontos(fib.topo, fib.fundo);
+            fib.fib382 = fib.topo + (tamanho * 0.382);
+            fib.fib500 = fib.topo + (tamanho * 0.500);
+            fib.fib618 = fib.topo + (tamanho * 0.618);
+            fib.fib786 = fib.topo + (tamanho * 0.786);
+            return SELL;
+         }
+      }
+   }
+
+
+   return NONE;
+}
+
+void CriarCampo(string nome, int xx, int yy, int largura, int altura) {
+
+   ObjectCreate(0, nome, OBJ_EDIT, 0, 0, 0);
+
+   ObjectSetInteger(0, nome, OBJPROP_XDISTANCE, xx);
+   ObjectSetInteger(0, nome, OBJPROP_YDISTANCE, yy);
+   ObjectSetInteger(0, nome, OBJPROP_XSIZE, largura);
+   ObjectSetInteger(0, nome, OBJPROP_YSIZE, altura);
+
+   ObjectSetString(0, nome, OBJPROP_TEXT, "100.00");
+}
+
+void AdicionarNaLista(double valor) {
+   if (ExisteNaLista(supports, supportsCounter, valor)) {
+      return;
+   }
+   
+   supports[supportsCounter] = valor;
+   supportsCounter++;
+   
+   Print("Valor adicionado: ", valor);
+   for (int i = 0; i < supportsCounter; i++) {
+      DesenharLinhaHorizontal("TopoEFundo_" + IntegerToString(i),  supports[i],  clrYellow);
+   }
+   
+   OrdenarLista(supports, supportsCounter);
+   ChartRedraw();
+}
+
+bool EhDivisivelPor5(double preco) {
+   int valor = (int)preco;
+   
+   return (valor % 5 == 0);
+}
+
+void OrdenarLista(double &lista[], int tamanho) {
+   for(int i = 0; i < tamanho - 1; i++) {
+      for(int j = i + 1; j < tamanho; j++){
+         if(lista[i] > lista[j]) {
+            double temp = lista[i];
+            lista[i] = lista[j];
+            lista[j] = temp;
+         }
+      }
+   }
+}
+
+BordersOperation EncontrarZonaAtual(double preco) {
+   BordersOperation border;
+   border.instantiated = false;
+   for(int i = 1; i < supportsCounter; i++) {
+      if(preco >= supports[i-1] && preco <= supports[i]) {
+         border.instantiated = true;
+         border.max = supports[i];
+         border.min = supports[i-1];
+
+         return border;
+      }
+   }
+
+   return border;
+}
+
+double EncontrarMultiploDe5MaisProximo(double valor){
+   int inteiro = (int)valor;
+
+   int inferior = (inteiro / 5) * 5;
+   int superior = inferior + 5;
+
+   if((inteiro - inferior) <= (superior - inteiro))
+      return inferior;
+
+   return superior;
+}
+
+bool EhTopo(int shift, int forca, ENUM_TIMEFRAMES tf)
+{
+   double highAtual = iHigh(_Symbol, tf, shift);
+
+   for(int i = 1; i <= forca; i++)
+   {
+      // Candles anteriores
+      if(highAtual <= iHigh(_Symbol, tf, shift + i))
+         return false;
+
+      // Candles posteriores
+      if(highAtual <= iHigh(_Symbol, tf, shift - i))
+         return false;
+   }
+
+   return true;
+}
+
+
+bool EhFundo(int shift, int forca, ENUM_TIMEFRAMES tf)
+{
+   double lowAtual = iLow(_Symbol, tf, shift);
+
+   for(int i = 1; i <= forca; i++)
+   {
+      // Candles anteriores
+      if(lowAtual >= iLow(_Symbol, tf, shift + i))
+         return false;
+
+      // Candles posteriores
+      if(lowAtual >= iLow(_Symbol, tf, shift - i))
+         return false;
+   }
+
+   return true;
+}
+
+void atualizarToposEFundos(ENUM_TIMEFRAMES tf){
+   int forca = 2;
+   
+   for(int i = forca; i < 100 - forca; i++) {
+      if(EhTopo(i, forca ,tf)) {
+         double valor = EncontrarMultiploDe5MaisProximo(iHigh(_Symbol, tf, i));
+         AdicionarNaLista(valor);
+      }
+   
+      if(EhFundo(i, forca, tf)) {
+         double valor = EncontrarMultiploDe5MaisProximo(iLow(_Symbol, tf, i));
+         AdicionarNaLista(valor);
+      }
+   }
+}
+
+bool ExisteNaLista(double &lista[], int tamanho, double valor){
+   if(tamanho <= 0)
+      return false;
+
+   int novoTamanho = 1;
+   bool existe = false;
+   for(int i = 0; i < tamanho; i++) {
+      if(lista[i] > 0 && lista[i] == valor) {
+         existe = true;
+      }
+   }
+   
+   return existe;
+}

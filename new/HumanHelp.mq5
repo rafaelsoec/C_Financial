@@ -871,6 +871,7 @@ void ExecutarToposEFundos(TimeframeConfig &config){
   if (border.instantiated){
       double diffSup = CalcularPontos(config.preco, border.max);
       double difInf = CalcularPontos(config.preco, border.min);
+      double difBordas = CalcularPontos(border.max, border.min);
       TypeNegotiation type = DetectarPressaoVolume(config);
       if (IsBearish(config.candles[0]) && tipo == SELL && type == tipo ) {
          if (config.candles[1].open > border.max && config.candles[0].close < border.max) {
@@ -881,6 +882,9 @@ void ExecutarToposEFundos(TimeframeConfig &config){
             double stop = CalcularPontos(config.preco, config.candles[1].high);
             double take = stop;
             ExecutarNegociacao(tipo, VOLUME_BORDERS, stop, take, comentario, config.robotBotTop);
+         }else if (config.candles[0].open < border.max && config.candles[0].close > border.min && diffSup > difBordas * 0.4) {
+            double stop = CalcularPontos(config.preco, config.candles[0].high);
+            double take = stop;
          }
       }else if (IsBullish(config.candles[0]) && tipo == BUY  && type == tipo) {
          if (config.candles[1].open < border.max && config.candles[0].close > border.max) {
@@ -891,6 +895,9 @@ void ExecutarToposEFundos(TimeframeConfig &config){
             double stop = CalcularPontos(config.preco, config.candles[1].low);
             double take = stop;
             ExecutarNegociacao(tipo, VOLUME_BORDERS, stop, take, comentario, config.robotBotTop);
+         }else if (config.candles[0].open > border.min && config.candles[0].close < border.max && difInf > difBordas * 0.4 ) {
+            double stop = CalcularPontos(config.preco, config.candles[0].low);
+            double take = stop;
          }
       }
    } /**/

@@ -3534,15 +3534,16 @@ BordersOperation EncontrarZonaAtual(double preco) {
 }
 
 double EncontrarMultiploDe5MaisProximo(double valor){
-   int inteiro = (int)valor;
+    double passo;
 
-   int inferior = (inteiro / 5) * 5;
-   int superior = inferior + 5;
+    if (valor >= 100.0)
+        passo = 5.0;
+    else if (valor >= 10.0)
+        passo = 0.05;
+    else
+        passo = 0.05;
 
-   if((inteiro - inferior) <= (superior - inteiro))
-      return inferior;
-
-   return superior;
+    return round(valor / passo) * passo;
 }
 
 bool EhTopo(int shift, int forca, ENUM_TIMEFRAMES tf)

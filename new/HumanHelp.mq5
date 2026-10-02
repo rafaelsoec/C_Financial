@@ -232,17 +232,17 @@ struct DadosOrdem
 
 
 input int QTD_CANDLES = 5;
-input double LOSS_PER_DAY = 500;
+ double LOSS_PER_DAY = 200;
 input ATR_TYPE ATR_MINIMUM = ATR_0_5;
 input MOVE_STOP_TYPE MOVE_STOP = MOVE_STOP_30;
 input double PROPORTION_TAKE_STOP = 1;
- double VOLUME_CRUZAMENTO = 0;
- double VOLUME_ENGOLFO = 0;
- double VOLUME_MEDIAS = 0;
- double VOLUME_PATTERNS = 0;
- double VOLUME_TENDENCIA = 0;
-input double VOLUME_MULT_ROBOTS = 0.01;
-input double VOLUME_BORDERS = 0.01;
+ double VOLUME_CRUZAMENTO = 0.01;
+ double VOLUME_ENGOLFO = 0.01;
+ double VOLUME_MEDIAS = 0.01;
+ double VOLUME_PATTERNS = 0.01;
+ double VOLUME_TENDENCIA = 0.01;
+ double VOLUME_MULT_ROBOTS = 0.01;
+ double VOLUME_BORDERS = 0.01;
 input bool BLOQUEAR_POSICOES = false;
  bool ENABLE_TWOWAY_POSITION = false;
 input bool IGNORAR_NOTICIAS = false;
@@ -257,7 +257,7 @@ bool IGNORE_MAGIC_NUMBER = true;
 int CCI_MAX = 150;
 
 TimeframeConfig configs[];
-ENUM_TIMEFRAMES tfs[] = {PERIOD_M20, PERIOD_M30, PERIOD_H1};
+ENUM_TIMEFRAMES tfs[] = { PERIOD_M10, PERIOD_M15, PERIOD_M20, PERIOD_M30, PERIOD_H1};
 double supports[];
 int supportsCounter = 0;
 //, PERIOD_M10, PERIOD_M15, PERIOD_M20, PERIOD_M30, PERIOD_H1
@@ -586,6 +586,7 @@ void OnTick() {
             ExecutarFibonacci(configs[i]);
          }
       }
+      */
       int remainingSeconds = calcularCandleTime(configs[i].tf);
       if (remainingSeconds >= configs[i].tfSeconds * 0.2 ) {
          //configs[i].vendaPermitida = (!VerificarTimeframeAnterior(SELL, anterior.tf) || !verificarBordas(configs[i], SELL));
@@ -612,7 +613,6 @@ void OnTick() {
             }
          }
       }
-      */
  
    }
 } 
@@ -872,7 +872,7 @@ void ExecutarToposEFundos(TimeframeConfig &config){
       double diffSup = CalcularPontos(config.preco, border.max);
       double difInf = CalcularPontos(config.preco, border.min);
       double difBordas = CalcularPontos(border.max, border.min);
-      TypeNegotiation type = DetectarPressaoVolume(config);
+      TypeNegotiation type = tipo;//DetectarPressaoVolume(config);
       if (IsBearish(config.candles[0]) && tipo == SELL && type == tipo ) {
          if (config.candles[1].open > border.max && config.candles[0].close < border.max) {
             double stop = CalcularPontos(config.preco, config.candles[1].high);
@@ -883,7 +883,7 @@ void ExecutarToposEFundos(TimeframeConfig &config){
             double take = stop;
             ExecutarNegociacao(tipo, VOLUME_BORDERS, stop, take, comentario, config.robotBotTop);
          }else if (config.candles[0].open < border.max && config.candles[0].close > border.min && diffSup > difBordas * 0.4) {
-            double stop = CalcularPontos(config.preco, config.candles[0].high);
+            double stop = CalcularPontos(config.preco, border.min);
             double take = stop;
          }
       }else if (IsBullish(config.candles[0]) && tipo == BUY  && type == tipo) {
@@ -896,7 +896,7 @@ void ExecutarToposEFundos(TimeframeConfig &config){
             double take = stop;
             ExecutarNegociacao(tipo, VOLUME_BORDERS, stop, take, comentario, config.robotBotTop);
          }else if (config.candles[0].open > border.min && config.candles[0].close < border.max && difInf > difBordas * 0.4 ) {
-            double stop = CalcularPontos(config.preco, config.candles[0].low);
+            double stop = CalcularPontos(config.preco, border.max);
             double take = stop;
          }
       }
@@ -2214,14 +2214,21 @@ void MoveStopPorPontos() {
    bool multRobotExecutado = false;
    int counterBuy = 0, counterSell = 0;
    double profitCounter = 0;
+   long profitType = -1;
+   BordersOperation border;
+   border.instantiated = false;
+   ulong tickets[];
    MqlRates candles[];
+   bool existeMovStop = false;
    
+   ArrayResize(tickets, total);
    ArrayResize(positionsInLoss, total);
    for(int i = 0; i < total; i++) {
       ulong ticket = PositionGetTicket(i);
       if(ticket == 0)
          continue;
 
+      tickets[i] = ticket;
       if(!PositionSelectByTicket(ticket))
          continue;
 
@@ -2245,8 +2252,6 @@ void MoveStopPorPontos() {
       double profit = PositionGetDouble(POSITION_PROFIT);
       double volume = PositionGetDouble(POSITION_VOLUME);
       string comment = PositionGetString(POSITION_COMMENT);
-      double novoSL;
-      
       double percentualMoveStop = MOVE_STOP;
       double pontosTP = CalcularPontos(entry, tpAtual);
       
@@ -2260,6 +2265,17 @@ void MoveStopPorPontos() {
       
       TimeframeConfig config = getTfByComment(comment);
       if (profit > 0) {
+         if (profitCounter == 0) {
+            profitType = type;
+            if (type == POSITION_TYPE_SELL) {
+               border.max = slAtual; 
+               border.min = tpAtual;
+            } else if (type == POSITION_TYPE_BUY) {
+               border.max = tpAtual;
+               border.min = slAtual;
+            }
+         }
+         
          if (MOVE_PROTECTION_POINTS == percentualMoveStop) {
             if (!config.invalid) {
                double tamanhoMedio = CalcularTamanhoMedioCandle(config, 3);
@@ -2278,17 +2294,21 @@ void MoveStopPorPontos() {
          if(type == POSITION_TYPE_BUY && percentualMoveStop > 0) {
             if (entry > slAtual || slAtual == 0) {
                if (pontosEntrada > proportion) {
-                  novoSL = NormalizeDouble(entry + (pontosProtecao * point),  _Digits);
-                  AjustarStopTake(BUY, novoSL, tpAtual);
-                  if(trade.PositionModify(ticket, novoSL, tpAtual))
+                  slAtual = NormalizeDouble(entry + (pontosProtecao * point),  _Digits);
+                  AjustarStopTake(BUY, slAtual, tpAtual);
+                  if(trade.PositionModify(ticket, slAtual, tpAtual)) {
                      Print("Stop movido - Protecao - ", entry, " - BUY");
+                     existeMovStop = true;
+                  }
                } 
             } else {
                if (pontosSL > proportion) {
-                  novoSL = NormalizeDouble(slAtual + (pontosProtecao  * point),  _Digits);
-                  AjustarStopTake(BUY, novoSL, tpAtual);
-                  if(trade.PositionModify(ticket, novoSL, tpAtual))
-                     Print("Stop movido - ", novoSL, " - BUY");
+                  slAtual = NormalizeDouble(slAtual + (pontosProtecao  * point),  _Digits);
+                  AjustarStopTake(BUY, slAtual, tpAtual);
+                  if(trade.PositionModify(ticket, slAtual, tpAtual)){
+                     Print("Stop movido - ", slAtual, " - BUY");
+                     existeMovStop = true;
+                  }
                }
             }
          }
@@ -2296,18 +2316,35 @@ void MoveStopPorPontos() {
          if(type == POSITION_TYPE_SELL && percentualMoveStop > 0) {
             if (entry < slAtual || slAtual == 0) {
                if (pontosEntrada > proportion) {
-                  novoSL = NormalizeDouble(entry - (pontosProtecao * point),  _Digits);
-                  AjustarStopTake(SELL, novoSL, tpAtual);
-                  if(trade.PositionModify(ticket, novoSL, tpAtual))
+                  slAtual = NormalizeDouble(entry - (pontosProtecao * point),  _Digits);
+                  AjustarStopTake(SELL, slAtual, tpAtual);
+                  if(trade.PositionModify(ticket, slAtual, tpAtual)) {
                      Print("Stop movido - Protecao - ", entry, " - SELL");
+                     existeMovStop = true;
+                  }
                } 
             } else {
                if (pontosSL > proportion) {
-                  novoSL = NormalizeDouble(slAtual - (pontosProtecao   * point),  _Digits);
-                  AjustarStopTake(SELL, novoSL, tpAtual);
-                  if(trade.PositionModify(ticket, novoSL, tpAtual))
-                     Print("Stop movido - ", novoSL, " - SELL");
+                  slAtual = NormalizeDouble(slAtual - (pontosProtecao   * point),  _Digits);
+                  AjustarStopTake(SELL, slAtual, tpAtual);
+                  if(trade.PositionModify(ticket, slAtual, tpAtual)) {
+                     Print("Stop movido - ", slAtual, " - SELL");
+                     existeMovStop = true;
+                  }
                }
+            }
+         }
+         
+         if (profitType == type) {
+            profitCounter += 1;
+            border.instantiated = true;
+            
+            if (type == POSITION_TYPE_SELL) {
+               border.max = tpAtual > border.min ? tpAtual : border.min;
+               border.min = slAtual < border.max ? slAtual : border.max; 
+            } else if (type == POSITION_TYPE_BUY) {
+               border.max = tpAtual < border.max ? tpAtual : border.max;
+               border.min = slAtual > border.min ? slAtual : border.min;
             }
          }
       }
@@ -2321,6 +2358,14 @@ void MoveStopPorPontos() {
             counterSell++;
          }
       }*/
+   }
+   
+   if (profitCounter == total && total > 1 && border.instantiated) {
+      for(int i = 0; i < total; i++) {
+         if (trade.PositionModify(tickets[i], border.min, border.max)) {
+   //         Print("Ordens reguladas.");
+         }
+      }
    }
    
    /*
@@ -2892,7 +2937,7 @@ int MinutosEntreDatas(datetime data1, datetime data2) {
 void generateButtons(){
    createButton("btnProtectAll", 50, 340, 300, 30, CORNER_LEFT_LOWER, 12, "Arial", "Proteger Negociações", clrWhite, clrGreen, clrGreen, false);
    createButton("btnCloseAll", 50, 380, 300, 30, CORNER_LEFT_LOWER, 12, "Arial", "Fechar Negociacoes", clrWhite, clrBlueViolet, clrBlueViolet, false);
-   CriarCampo("InputSuportes", 50, 175, 90, 30);  
+   CriarCampo("InputSuportes", 50, 250, 90, 30);  
    createButton("btnAddSupport", 150, 300, 200, 30, CORNER_LEFT_LOWER, 12, "Arial", "Add Maximos", clrWhite, clrBrown, clrBrown, false);
 }
 
@@ -3494,6 +3539,10 @@ void CriarCampo(string nome, int xx, int yy, int largura, int altura) {
 }
 
 void AdicionarNaLista(double valor) {
+   if (supportsCounter >= ArraySize(supports) - 1) {
+      supportsCounter = 0;
+   }
+   
    if (ExisteNaLista(supports, supportsCounter, valor)) {
       return;
    }

@@ -252,6 +252,7 @@ input int NUMBER_MAX_ROBOT = 2;
 input ulong MAGIC_NUMBER = 97889902933;
 input bool IS_SWING_TRADE = false;
 input bool IS_TEST = false;
+string PROX_EVENTO = "";
 bool IGNORE_MAGIC_NUMBER = true;
  bool VOLUME_PRICE_VALIDATION = false;
 int CCI_MAX = 150;
@@ -354,6 +355,7 @@ void showComments(){
          " MultiRobot: ", results[5],
          " Patterns: ", results[6],
          " TendencyRobot: ", results[3], "\n"
+         " Eventos: ", PROX_EVENTO, "\n"
          );
 }
 
@@ -2468,7 +2470,9 @@ bool ExisteNoticiaMoeda(string moeda, datetime inicio, datetime fim) {
       // Somente alto impacto
       if(evento.importance != CALENDAR_IMPORTANCE_HIGH)
          continue;
-
+         
+         
+      PROX_EVENTO = TimeToString(valores[i].time, TIME_DATE | TIME_MINUTES) + " - " + evento.name;
       Print(
          "Notícia encontrada: ",
          evento.name,
